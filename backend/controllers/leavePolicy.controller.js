@@ -5,18 +5,41 @@ const getModels = (req) => {
     if (!req.tenantDB) {
         throw new Error('Tenant database not initialized. Please ensure tenant middleware is running.');
     }
-    return {
-        LeavePolicy: req.tenantDB.model('LeavePolicy'),
-        Employee: req.tenantDB.model('Employee'),
-        LeaveBalance: req.tenantDB.model('LeaveBalance')
-    };
+    try {
+        return {
+            LeavePolicy: req.tenantDB.model('LeavePolicy'),
+            Employee: req.tenantDB.model('Employee'),
+            LeaveBalance: req.tenantDB.model('LeaveBalance')
+        };
+    } catch (err) {
+        console.error('Error in getModels (leavePolicy):', err);
+        throw new Error('Failed to get models from tenant database');
+    }
 };
 
 exports.createPolicy = async (req, res) => {
     try {
+        // Validate tenant context
+        if (!req.user || !req.user.tenantId) {
+            console.error("createPolicy ERROR: Missing user or tenantId in request");
+            return res.status(401).json({ error: "unauthorized", message: "User context or tenant not found" });
+        }
+
+        const tenantId = req.user.tenantId || req.tenantId;
+        if (!tenantId) {
+            console.error("createPolicy ERROR: tenantId not available");
+            return res.status(400).json({ error: "tenant_missing", message: "Tenant ID is required" });
+        }
+
+        // Ensure tenantDB is available
+        if (!req.tenantDB) {
+            console.error("createPolicy ERROR: Tenant database connection not available");
+            return res.status(500).json({ error: "tenant_db_unavailable", message: "Tenant database connection not available" });
+        }
+
         console.log('createPolicy called');
         console.log('Request body:', JSON.stringify(req.body, null, 2));
-        console.log('Tenant ID:', req.tenantId);
+        console.log('Tenant ID:', tenantId);
 
         const { LeavePolicy, Employee, LeaveBalance } = getModels(req);
         console.log('Models loaded successfully');
@@ -25,7 +48,7 @@ exports.createPolicy = async (req, res) => {
 
         console.log('Creating policy document...');
         const policy = new LeavePolicy({
-            tenant: req.tenantId,
+            tenant: tenantId,
             name,
             applicableTo,
             departmentIds,
@@ -40,7 +63,7 @@ exports.createPolicy = async (req, res) => {
         // If specific employee selected, assign immediately
         if (applicableTo === 'Specific' && specificEmployeeId) {
             console.log('Assigning to specific employee:', specificEmployeeId);
-            const employee = await Employee.findOne({ _id: specificEmployeeId, tenant: req.tenantId });
+            const employee = await Employee.findOne({ _id: specificEmployeeId, tenant: tenantId });
             if (employee) {
                 employee.leavePolicy = policy._id;
                 await employee.save();
@@ -54,7 +77,7 @@ exports.createPolicy = async (req, res) => {
                 const balancePromises = policy.rules.map(rule => {
                     console.log(`Creating balance for ${rule.leaveType}: ${rule.totalPerYear}`);
                     return new LeaveBalance({
-                        tenant: req.tenantId,
+                        tenant: tenantId,
                         employee: specificEmployeeId,
                         policy: policy._id,
                         leaveType: rule.leaveType,
@@ -75,7 +98,7 @@ exports.createPolicy = async (req, res) => {
             console.log('Assigning to employees with roles:', roles);
             const employees = await Employee.find({
                 role: { $in: roles },
-                tenant: req.tenantId
+                tenant: tenantId
             });
             console.log(`Found ${employees.length} employees with matching roles`);
 
@@ -90,7 +113,7 @@ exports.createPolicy = async (req, res) => {
                 // Create new balances
                 for (const rule of policy.rules) {
                     await new LeaveBalance({
-                        tenant: req.tenantId,
+                        tenant: tenantId,
                         employee: employee._id,
                         policy: policy._id,
                         leaveType: rule.leaveType,
@@ -108,7 +131,7 @@ exports.createPolicy = async (req, res) => {
         // If All employees, assign to everyone
         if (applicableTo === 'All') {
             console.log('Assigning to all employees');
-            const employees = await Employee.find({ tenant: req.tenantId });
+            const employees = await Employee.find({ tenant: tenantId });
             console.log(`Found ${employees.length} employees`);
 
             const year = new Date().getFullYear();
@@ -122,7 +145,7 @@ exports.createPolicy = async (req, res) => {
                 // Create new balances
                 for (const rule of policy.rules) {
                     await new LeaveBalance({
-                        tenant: req.tenantId,
+                        tenant: tenantId,
                         employee: employee._id,
                         policy: policy._id,
                         leaveType: rule.leaveType,
@@ -147,11 +170,31 @@ exports.createPolicy = async (req, res) => {
 
 exports.getPolicies = async (req, res) => {
     try {
+        // Validate tenant context
+        if (!req.user || !req.user.tenantId) {
+            console.error("getPolicies ERROR: Missing user or tenantId in request");
+            return res.status(401).json({ error: "unauthorized", message: "User context or tenant not found" });
+        }
+
+        const tenantId = req.user.tenantId || req.tenantId;
+        if (!tenantId) {
+            console.error("getPolicies ERROR: tenantId not available");
+            return res.status(400).json({ error: "tenant_missing", message: "Tenant ID is required" });
+        }
+
+        // Ensure tenantDB is available
+        if (!req.tenantDB) {
+            console.error("getPolicies ERROR: Tenant database connection not available");
+            return res.status(500).json({ error: "tenant_db_unavailable", message: "Tenant database connection not available" });
+        }
+
         const { LeavePolicy } = getModels(req);
-        const policies = await LeavePolicy.find({ tenant: req.tenantId }).sort({ createdAt: -1 });
+        const policies = await LeavePolicy.find({ tenant: tenantId }).sort({ createdAt: -1 });
         res.json(policies);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("getPolicies ERROR:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).json({ error: error.message || "Failed to fetch leave policies" });
     }
 };
 

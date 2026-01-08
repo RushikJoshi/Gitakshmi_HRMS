@@ -3,6 +3,8 @@ const router = express.Router();
 const controller = require('../controllers/offerTemplate.controller');
 const auth = require('../middleware/auth.jwt');
 
+console.log('[OFFER_TEMPLATE_ROUTES] Loading offer template routes');
+
 router.use(auth.authenticate);
 router.use(auth.requireHr);
 

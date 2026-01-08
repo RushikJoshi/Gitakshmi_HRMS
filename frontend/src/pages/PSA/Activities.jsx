@@ -12,7 +12,8 @@ export default function Activities() {
     try {
       setLoading(true);
       // Use PSA endpoint to get activities from all tenants
-      const res = await api.get('/activities/psa/all');
+      // Increase timeout because this aggregates from all tenants
+      const res = await api.get('/activities/psa/all', { timeout: 60000 });
       setActivities(res.data?.data || []);
     } catch (err) {
       console.error('Failed to load activities', err);

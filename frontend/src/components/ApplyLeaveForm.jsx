@@ -8,7 +8,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Info,
-    Lock
+    Lock,
+    ArrowLeft
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
@@ -53,7 +54,7 @@ const getHolidayIcon = (name = '') => {
     return HOLIDAY_ICONS.default;
 };
 
-export default function ApplyLeaveForm({ balances = [], existingLeaves = [], editData = null, isHR = false, targetEmployeeId = null, onCancelEdit, onSuccess }) {
+export default function ApplyLeaveForm({ balances = [], existingLeaves = [], editData = null, isHR = false, targetEmployeeId = null, onCancelEdit, onSuccess, onClose }) {
     const [form, setForm] = useState({
         leaveType: '',
         startDate: '',
@@ -343,6 +344,15 @@ export default function ApplyLeaveForm({ balances = [], existingLeaves = [], edi
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-4">
+                    {onClose && (
+                        <button
+                            onClick={onClose}
+                            className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition text-slate-500"
+                            title="Go Back"
+                        >
+                            <ArrowLeft size={24} />
+                        </button>
+                    )}
                     <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-xl">
                         <CalendarIcon size={24} />
                     </div>

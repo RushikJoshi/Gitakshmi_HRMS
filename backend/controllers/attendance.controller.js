@@ -698,3 +698,109 @@ exports.getCalendar = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// 8. GET TODAY SUMMARY (For Employee Dashboard)
+exports.getTodaySummary = async (req, res) => {
+    try {
+        const { Attendance } = getModels(req);
+        const employeeId = req.user.id;
+        const tenantId = req.tenantId;
+
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const attendance = await Attendance.findOne({
+            tenant: tenantId,
+            employee: employeeId,
+            date: today
+        });
+
+        if (!attendance) {
+            return res.json({
+                totalPunches: 0,
+                totalIn: 0,
+                totalOut: 0,
+                workingHours: 0,
+                status: 'Not Marked',
+                firstPunch: null,
+                lastPunch: null,
+                logs: []
+            });
+        }
+
+        let totalIn = 0;
+        let totalOut = 0;
+        attendance.logs.forEach(log => {
+            if (log.type === 'IN') totalIn++;
+            if (log.type === 'OUT') totalOut++;
+        });
+
+        res.json({
+            totalPunches: attendance.logs.length,
+            totalIn,
+            totalOut,
+            workingHours: attendance.workingHours || 0,
+            status: attendance.status || 'Not Marked',
+            firstPunch: attendance.checkIn || null,
+            lastPunch: attendance.checkOut || null,
+            logs: attendance.logs
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// 9. GET HR DASHBOARD STATS (For HR/Admin Dashboard)
+exports.getHRStats = async (req, res) => {
+    try {
+        const { Attendance, Employee } = getModels(req);
+        const tenantId = req.tenantId;
+        const { date } = req.query;
+
+        // Determine target date (default today)
+        const targetDateStr = date || new Date().toISOString().split('T')[0];
+        const [y, m, d] = targetDateStr.split('-').map(Number);
+        const targetDate = new Date(y, m - 1, d); // Local midnight
+
+        // Fetch all attendance for today
+        const attendances = await Attendance.find({
+            tenant: tenantId,
+            date: targetDate
+        });
+
+        const totalPunchedIn = attendances.length;
+
+        let multiplePunches = 0;
+        let missingPunchOut = 0;
+        let totalWorkingHours = 0;
+
+        attendances.forEach(att => {
+            // Multiple punches: if logs > 2 (meaning more than just IN-OUT pair)
+            if (att.logs && att.logs.length > 2) {
+                multiplePunches++;
+            }
+
+            // Missing Punch Out: user checked in roughly (logs not empty) but no checkOut yet
+            // (Only counts if they are not currently working late? Simple logic: !checkOut)
+            if (att.checkIn && !att.checkOut) {
+                missingPunchOut++;
+            }
+
+            totalWorkingHours += (att.workingHours || 0);
+        });
+
+        const avgWorkingHours = totalPunchedIn > 0 ? (totalWorkingHours / totalPunchedIn).toFixed(2) : 0;
+
+        res.json({
+            date: targetDateStr,
+            totalPunchedIn,
+            multiplePunches,
+            missingPunchOut,
+            avgWorkingHours
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};

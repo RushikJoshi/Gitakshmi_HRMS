@@ -9,6 +9,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 export default function HRDashboard() {
   const { _user, _logout } = useAuth();
   const [tenant, setTenant] = useState(null);
+  const [departments, setDepartments] = useState([]);
   const [counts, setCounts] = useState({
     employees: 0,
     departments: 0,
@@ -17,6 +18,7 @@ export default function HRDashboard() {
     activeHRs: 0,
     topLevel: 0
   });
+  const [attendanceStats, setAttendanceStats] = useState(null);
   const [leaves, setLeaves] = useState([]);
   const [_loading, setLoading] = useState(true);
   const [_error, setError] = useState(null);
@@ -28,19 +30,22 @@ export default function HRDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const [tRes, eRes, dRes, lRes] = await Promise.all([
+        const [tRes, eRes, dRes, lRes, attRes] = await Promise.all([
           api.get('/tenants/me').catch(() => ({ data: null })),
           api.get('/hr/employees').catch(() => ({ data: [] })),
           api.get('/hr/departments').catch(() => ({ data: [] })),
           api.get('/hr/leaves/requests').catch(() => ({ data: { data: [] } })),
+          api.get('/attendance/stats').catch(() => ({ data: null }))
         ]);
 
         const employees = Array.isArray(eRes.data) ? eRes.data : (eRes.data?.data || []);
-        const departments = Array.isArray(dRes.data) ? dRes.data : [];
+        const formattedDepartments = Array.isArray(dRes.data) ? dRes.data : [];
         const leavesData = lRes.data?.data || [];
 
         setTenant(tRes.data);
+        setDepartments(formattedDepartments);
         setLeaves(leavesData);
+        setAttendanceStats(attRes?.data);
 
         // Get hierarchy stats
         const hierarchyRes = await api.get('/hr/employees/hierarchy').catch(() => ({ data: { stats: {} } }));
@@ -48,7 +53,7 @@ export default function HRDashboard() {
 
         setCounts({
           employees: employees.length,
-          departments: departments.length,
+          departments: formattedDepartments.length,
           managers: employees.filter(emp => (emp.role || '').toLowerCase().includes('manager')).length,
           pendingLeaves: leavesData.filter(l => (l.status || '').toLowerCase() === 'pending').length,
           activeHRs: employees.filter(emp => (emp.role || '').toLowerCase().includes('hr')).length,
@@ -75,7 +80,28 @@ export default function HRDashboard() {
         <div className="text-lg md:text-xl font-bold text-blue-950">{tenant?.name || '—'} <span className="text-xs md:text-sm text-blue-700 ml-2 font-normal">({tenant?.code})</span></div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+      {/* Attendance Overview - NEW */}
+      <h2 className="text-lg font-bold text-slate-800 mt-6">Today's Attendance Overview</h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Punched In</div>
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">{attendanceStats?.totalPunchedIn || 0}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Multiple Punches</div>
+          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-2">{attendanceStats?.multiplePunches || 0}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Missing Out</div>
+          <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2">{attendanceStats?.missingPunchOut || 0}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Avg Hours</div>
+          <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">{attendanceStats?.avgWorkingHours || 0}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mt-6">
         <Link to="/hr/org" className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition cursor-pointer">
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase">Total Employees</div>
@@ -110,6 +136,23 @@ export default function HRDashboard() {
             <div className="text-2xl md:text-3xl font-bold text-amber-600 dark:text-amber-400">{counts.pendingLeaves}</div>
           </div>
           <div className="h-1 bg-amber-200 dark:bg-amber-900/30 rounded-full mt-3"></div>
+        </div>
+      </div>
+
+      {/* Employees by Department */}
+      <div>
+        <h3 className="text-lg font-bold text-slate-800 mb-4 mt-6">Employees by Department</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {departments.map(dept => (
+            <div key={dept._id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:translate-y-[-2px] transition-transform">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate" title={dept.name}>{dept.name}</div>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-2xl font-black text-slate-800 dark:text-white">{dept.employeeCount || 0}</span>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase">Emp</span>
+              </div>
+            </div>
+          ))}
+          {departments.length === 0 && <div className="text-slate-400 text-sm col-span-full">No departments found.</div>}
         </div>
       </div>
 
@@ -181,15 +224,16 @@ export default function HRDashboard() {
                       {l.leaveType}
                     </span>
                   </td>
-                  <td className="px-4 md:px-6 py-3 text-slate-600 text-xs md:text-sm">
-                    {formatDateDDMMYYYY(l.startDate)} - {formatDateDDMMYYYY(l.endDate)}
-                  </td>
+                  <td className="px-4 md:px-6 py-3 text-slate-600 text-xs md:text-sm">{new Date(l.from).toLocaleDateString()} - {new Date(l.to).toLocaleDateString()}</td>
                   <td className="px-4 md:px-6 py-3">
-                    {l.status === 'Pending' && (
+                    {l.status === 'pending' && (
                       <div className="flex gap-2">
-                        <Link to="/hr/leave-approvals" className="p-1 md:p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition" title="Go to Approvals">
-                          <Eye size={16} />
-                        </Link>
+                        <button className="p-1 md:p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition" title="Approve">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        </button>
+                        <button className="p-1 md:p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition" title="Reject">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        </button>
                       </div>
                     )}
                     {l.status !== 'Pending' && (

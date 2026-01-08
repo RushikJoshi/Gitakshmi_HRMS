@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useParams } from 'react-router-dom';
-import axios from 'axios';
+import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
+import api from '../../utils/api'; // Centralized axios instance
+import { useAuth } from '../../context/AuthContext';
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
-
-const API_BASE = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL + "/api"
-  : "http://localhost:5000/api";
 
 export default function JobApplication() {
   const [searchParams] = useSearchParams();
@@ -19,28 +16,12 @@ export default function JobApplication() {
   const [formData, setFormData] = useState({
     // Personal
     name: '',
+    fatherName: '', // NEW: For Offer Letter
     email: '',
     mobile: '',
-    emergencyContact: '',
     dob: '',
+    address: '', // NEW: For Offer Letter
     workLocation: '',
-
-    // Professional
-    intro: '',
-    experience: '',
-    relevantExperience: '',
-    currentCompany: '',
-    currentDesignation: '',
-    currentlyWorking: false,
-    noticePeriod: false,
-    currentCTC: '',
-    takeHome: '',
-    expectedCTC: '',
-    isFlexible: false,
-    hasOtherOffer: false,
-    relocate: false,
-    reasonForChange: '',
-    linkedin: '',
 
     // File
     resume: null,
@@ -49,15 +30,74 @@ export default function JobApplication() {
     consent: false
   });
 
+  const [requirement, setRequirement] = useState(null); // To store job details (Role)
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
 
+  const { user, isInitialized } = useAuth();
+  const navigate = useNavigate();
+
+  const [alreadyApplied, setAlreadyApplied] = useState(null); // null, or object with details
+
+  // Check application status on mount
+  useEffect(() => {
+    if (user && requirementId) {
+      async function checkStatus() {
+        try {
+          const res = await api.get(`/candidate/check-status/${requirementId}`);
+          if (res.data.applied) {
+            setAlreadyApplied(res.data);
+          }
+        } catch (err) {
+          console.error("Failed to check status", err);
+        }
+      }
+      checkStatus();
+    }
+  }, [user, requirementId]);
+
+  useEffect(() => {
+    if (isInitialized) {
+      if (!user || user.role !== 'candidate') {
+        const redirectUrl = requirementId ? `/apply-job/${requirementId}?tenantId=${tenantId}` : window.location.pathname + window.location.search;
+        navigate(`/candidate/login?tenantId=${tenantId}&redirect=${encodeURIComponent(redirectUrl)}`);
+      }
+    }
+  }, [isInitialized, user, tenantId, requirementId, navigate]);
+
   useEffect(() => {
     if (!requirementId || !tenantId) {
-      setError('Invalid application link. Missing requirement or tenant information.');
+      if (isInitialized && (!user || user.role !== 'candidate')) return; // handled above
+      // Only show error if we are logged in but missing params
+      if (user) setError('Invalid application link. Missing requirement or tenant information.');
+    } else {
+      // Fetch requirement to get Job Title (Role)
+      fetchRequirementDetails();
     }
-  }, [requirementId, tenantId]);
+  }, [requirementId, tenantId, user, isInitialized]);
+
+  // Pre-fill form from User Profile
+  useEffect(() => {
+    if (user && !formData.email) {
+      setFormData(prev => ({
+        ...prev,
+        name: user.name || '',
+        email: user.email || '',
+        mobile: user.mobile || '',
+        // We can't set file input value, but we can potentially indicate existing resume
+      }));
+    }
+  }, [user]);
+
+  const fetchRequirementDetails = async () => {
+    try {
+      const res = await api.get(`/public/job/${requirementId}?tenantId=${tenantId}`);
+      setRequirement(res.data);
+    } catch (err) {
+      console.log("Could not fetch requirement details", err);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -112,7 +152,7 @@ export default function JobApplication() {
         }
       });
 
-      await axios.post(`${API_BASE}/public/apply-job`, submitData, {
+      await api.post('/public/apply-job', submitData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'X-Tenant-ID': tenantId
@@ -150,159 +190,271 @@ export default function JobApplication() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-extrabold text-gray-900">Job Application</h2>
-          <p className="mt-2 text-sm text-gray-600">Please fill out the form below to apply</p>
-        </div>
 
-        <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg overflow-hidden">
-          {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 m-4">
-              <p className="text-red-700">{error}</p>
+
+  // UI for Already Applied
+  if (alreadyApplied) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="bg-white shadow-xl rounded-2xl overflow-hidden text-center p-10 border border-gray-100">
+            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-blue-100 mb-6">
+              <svg className="h-10 w-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
-          )}
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Application Already Status</h2>
+            <p className="text-lg text-gray-600 mb-8 max-w-xl mx-auto">
+              You have already applied for this position on <span className="font-semibold">{new Date(alreadyApplied.appliedAt).toLocaleDateString()}</span>.
+            </p>
 
-          <div className="p-6 space-y-8">
-            {/* Personal Details */}
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 border-b pb-2 mb-4">Personal Details</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Full Name *</label>
-                  <input type="text" name="name" required value={formData.name} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Email *</label>
-                  <input type="email" name="email" required value={formData.email} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Contact Number (+91) *</label>
-                  <input type="tel" name="mobile" required value={formData.mobile} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Emergency Contact (+91) *</label>
-                  <input type="tel" name="emergencyContact" required value={formData.emergencyContact} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
-                  <DatePicker
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm h-[38px] border"
-                    format="DD-MM-YYYY"
-                    placeholder="DD-MM-YYYY"
-                    value={formData.dob ? dayjs(formData.dob) : null}
-                    onChange={(date) => setFormData(prev => ({ ...prev, dob: date ? date.format('YYYY-MM-DD') : '' }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Current Work Location</label>
-                  <input type="text" name="workLocation" value={formData.workLocation} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-              </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 max-w-lg mx-auto mb-8">
+              <h3 className="text-amber-800 font-semibold mb-2">Re-Application Policy</h3>
+              <p className="text-amber-700 text-sm">
+                Candidates can re-apply for the same position <strong>after 1 month</strong> (30 days) from the date of previous application.
+              </p>
             </div>
 
-            {/* Professional Details */}
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 border-b pb-2 mb-4">Professional Details</h3>
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Short Introduction</label>
-                  <textarea name="intro" rows={3} value={formData.intro} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Total Experience (Years) *</label>
-                    <input type="text" name="experience" required value={formData.experience} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Relevant Experience (Years) *</label>
-                    <input type="text" name="relevantExperience" required value={formData.relevantExperience} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Current / Last Company</label>
-                    <input type="text" name="currentCompany" value={formData.currentCompany} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Current Designation</label>
-                    <input type="text" name="currentDesignation" value={formData.currentDesignation} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Current CTC</label>
-                    <input type="text" name="currentCTC" value={formData.currentCTC} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Expected CTC</label>
-                    <input type="text" name="expectedCTC" value={formData.expectedCTC} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Monthly Take Home</label>
-                    <input type="text" name="takeHome" value={formData.takeHome} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">LinkedIn Profile URL</label>
-                    <input type="url" name="linkedin" value={formData.linkedin} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center">
-                    <input type="checkbox" name="currentlyWorking" checked={formData.currentlyWorking} onChange={handleInputChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                    <label className="ml-2 block text-sm text-gray-900">Currently Working?</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input type="checkbox" name="noticePeriod" checked={formData.noticePeriod} onChange={handleInputChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                    <label className="ml-2 block text-sm text-gray-900">Serving Notice Period?</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input type="checkbox" name="isFlexible" checked={formData.isFlexible} onChange={handleInputChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                    <label className="ml-2 block text-sm text-gray-900">Is expected salary flexible?</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input type="checkbox" name="hasOtherOffer" checked={formData.hasOtherOffer} onChange={handleInputChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                    <label className="ml-2 block text-sm text-gray-900">Holding other Offer?</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input type="checkbox" name="relocate" checked={formData.relocate} onChange={handleInputChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                    <label className="ml-2 block text-sm text-gray-900">Ready to Relocate?</label>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Reason for Change</label>
-                  <textarea name="reasonForChange" rows={2} value={formData.reasonForChange} onChange={handleInputChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border" />
-                </div>
-              </div>
-            </div>
-
-            {/* Resume */}
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 border-b pb-2 mb-4">Resume</h3>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Upload Resume (PDF only, max 4MB) *</label>
-                <input type="file" accept=".pdf" onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-              </div>
-            </div>
-
-            {/* Consent */}
-            <div className="flex items-start">
-              <div className="flex items-center h-5">
-                <input id="consent" name="consent" type="checkbox" required checked={formData.consent} onChange={handleInputChange} className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded" />
-              </div>
-              <div className="ml-3 text-sm">
-                <label htmlFor="consent" className="font-medium text-gray-700">I acknowledge and consent to background verification</label>
-              </div>
-            </div>
-
-            <div className="pt-4">
-              <button type="submit" disabled={loading || !requirementId || !tenantId} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
-                {loading ? 'Submitting Application...' : 'Submit Application'}
+            <div className="flex justify-center gap-4">
+              <button onClick={() => navigate('/candidate/dashboard')} className="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
+                Go to Dashboard
               </button>
             </div>
           </div>
-        </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Helper check for Internal jobs
+  if (requirement && requirement.jobVisibility === 'Internal') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md w-full space-y-8">
+          <div className="bg-white py-8 px-4 shadow-lg rounded-lg sm:px-10 border-l-4 border-amber-500">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100">
+                <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="mt-6 text-2xl font-bold text-gray-900">Internal Position</h2>
+              <p className="mt-4 text-gray-600">
+                This position is available to internal employees only.
+              </p>
+              <p className="mt-2 text-sm text-gray-500">
+                Please log in to your employee portal to view and apply for this job.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-4xl">Join Our Team</h2>
+          <p className="mt-4 max-w-2xl text-lg text-gray-500 mx-auto">
+            Review the role description and submit your application to be part of our journey.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* LEFT COLUMN: Sticky Job Description */}
+          <div className="lg:col-span-5 lg:sticky lg:top-8 order-2 lg:order-1">
+            {requirement ? (
+              <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
+                <div className="bg-blue-600 px-6 py-4">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Job Description
+                  </h3>
+                </div>
+                <div className="p-6">
+                  <div className="mb-6">
+                    <h4 className="text-2xl font-bold text-gray-900 mb-2">{requirement.jobTitle}</h4>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                        {requirement.department}
+                      </span>
+                      {requirement.experience && (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                          Exp: {requirement.experience}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                        {requirement.vacancy} Openings
+                      </span>
+                    </div>
+                  </div>
+
+                  {requirement.description ? (
+                    <div className="prose prose-blue text-gray-600 whitespace-pre-line text-sm leading-relaxed max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                      {requirement.description}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 italic">No detailed description provided.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="animate-pulse bg-white p-6 rounded-2xl shadow-sm">
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-1/2 mb-4"></div>
+                <div className="h-40 bg-gray-200 rounded mb-4"></div>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: Application Form */}
+          <div className="lg:col-span-7 order-1 lg:order-2">
+            <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
+              <div className="bg-gray-900 px-6 py-4">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Application Form
+                </h3>
+              </div>
+
+              <form onSubmit={handleSubmit} className="p-8">
+                {error && (
+                  <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r-md">
+                    <div className="flex">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <p className="text-sm text-red-700">{error}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-8">
+                  {/* Personal Details */}
+                  <section>
+                    <h4 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-6 uppercase tracking-wider text-xs">Personal Information</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Role Applied For</label>
+                        <div className="relative">
+                          <input type="text" value={requirement?.jobTitle || 'Loading...'} disabled className="block w-full bg-gray-50 border border-gray-300 rounded-lg py-2.5 px-4 text-gray-500 cursor-not-allowed text-sm font-medium" />
+                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                        <input type="text" name="name" required value={formData.name} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors" placeholder="John Doe" />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Father's Full Name *</label>
+                        <input type="text" name="fatherName" required value={formData.fatherName} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors" placeholder="Required for Offer Letter" />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                        <input type="email" name="email" required value={formData.email} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors" placeholder="john@example.com" />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number (+91) *</label>
+                        <input type="tel" name="mobile" required value={formData.mobile} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors" placeholder="9876543210" />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
+                        <DatePicker
+                          className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-[7px] border transition-colors relative"
+                          format="DD-MM-YYYY"
+                          placeholder="Select Date"
+                          value={formData.dob ? dayjs(formData.dob) : null}
+                          onChange={(date) => setFormData(prev => ({ ...prev, dob: date ? date.format('YYYY-MM-DD') : '' }))}
+                        />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Current Work Location</label>
+                        <input type="text" name="workLocation" value={formData.workLocation} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors" placeholder="City, Country" />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Permanent Address *</label>
+                        <textarea name="address" required rows={3} value={formData.address} onChange={handleInputChange} className="block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm py-2.5 px-3 border transition-colors resize-none" placeholder="Enter your full permanent address (Required for documentation)" />
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Documents */}
+                  <section>
+                    <h4 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-6 uppercase tracking-wider text-xs">Documents</h4>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Upload Resume (PDF only, max 4MB) *</label>
+                      <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="space-y-1 text-center">
+                          <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <div className="flex text-sm text-gray-600 justify-center">
+                            <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                              <span>Upload a file</span>
+                              <input id="file-upload" name="file-upload" type="file" accept=".pdf" className="sr-only" onChange={handleFileChange} />
+                            </label>
+                            <p className="pl-1">or drag and drop</p>
+                          </div>
+                          <p className="text-xs text-gray-500">{formData.resume ? formData.resume.name : 'PDF up to 4MB'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Consent */}
+                  <section className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="flex items-start">
+                      <div className="flex items-center h-5">
+                        <input id="consent" name="consent" type="checkbox" required checked={formData.consent} onChange={handleInputChange} className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded cursor-pointer" />
+                      </div>
+                      <div className="ml-3 text-sm">
+                        <label htmlFor="consent" className="font-medium text-gray-700 cursor-pointer select-none">I acknowledge and consent to background verification checks as part of the hiring process.</label>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="pt-4">
+                    <button type="submit" disabled={loading || !requirementId || !tenantId} className="w-full flex justify-center py-4 px-4 border border-transparent rounded-lg shadow-md text-base font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5">
+                      {loading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Submitting Application...
+                        </>
+                      ) : (
+                        'Submit Application'
+                      )}
+                    </button>
+                    <p className="text-xs text-center text-gray-400 mt-4">Protected by HRMS SaaS Security</p>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

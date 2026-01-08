@@ -1,0 +1,20 @@
+✅ DB Connected
+Creating Test Applicant...
+Created Test Applicant: 694b8a25f433d596b98f8f1b
+
+--- TEST: Offer Letter Generation with Complete Data Persistence ---
+✅ PASS: Offer letter generated successfully
+Applicant status: Selected
+Offer letter path: offers/test_complete_offer.pdf
+Offer ref code: OFFER/2024/COMPLETE123
+Joining date: Fri Mar 15 2024 05:30:00 GMT+0530 (India Standard Time)
+Address: 456 Complete Test Avenue, Test City, Test State 12345
+Department: Information Technology
+Location: Mumbai, Maharashtra
+✅ PASS: Joining date persisted correctly
+✅ PASS: Address persisted correctly
+✅ PASS: Department persisted correctly
+✅ PASS: Location persisted correctly
+✅ PASS: Offer ref code persisted correctly
+🧹 Cleaned up test applicant
+✅ DB Disconnected

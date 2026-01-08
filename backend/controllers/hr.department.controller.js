@@ -1,9 +1,8 @@
 const mongoose = require('mongoose');
-const DepartmentSchema = require("../models/Department");
-const EmployeeSchema = require("../models/Employee");
 
 /* ----------------------------------------------------
-   HELPER → Load model from dynamic tenant database
+   HELPER → Get models from tenant database
+   Models are already registered by dbManager, just retrieve them
 ---------------------------------------------------- */
 function getModels(req) {
   if (!req.tenantDB) {
@@ -11,13 +10,15 @@ function getModels(req) {
   }
   const db = req.tenantDB;
   try {
+    // Models are already registered by dbManager, just retrieve them
+    // Do NOT pass schema - use connection.model(name) only
     return {
-      Department: db.model("Department", DepartmentSchema),
-      Employee: db.model("Employee", EmployeeSchema)
+      Department: db.model("Department"),
+      Employee: db.model("Employee")
     };
   } catch (err) {
-    console.error("Error in getModels:", err);
-    throw err;
+    console.error("[hr.department.controller] Error retrieving models:", err.message);
+    throw new Error(`Failed to retrieve models from tenant database: ${err.message}`);
   }
 }
 
@@ -27,11 +28,32 @@ function getModels(req) {
 exports.list = async function (req, res) {
   try {
     const tenantId = req.tenantId;
-    const { Department } = getModels(req);
+    const { Department, Employee } = getModels(req);
 
-    const items = await Department.find({ tenant: tenantId })
-      .sort({ name: 1 });
-    res.json(items);
+    const departments = await Department.find({ tenant: tenantId }).sort({ name: 1 }).lean();
+
+    // Aggregate active employees count by department
+    // Note: ensure we cast tenantId to ObjectId if strictly needed, usually mongoose handles it in match if passed as object
+    // But for aggregate $match, we often need explicit ObjectId
+    const mongoose = require('mongoose');
+    const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
+
+    const counts = await Employee.aggregate([
+      { $match: { tenant: tenantObjectId, status: 'Active' } },
+      { $group: { _id: "$departmentId", count: { $sum: 1 } } }
+    ]);
+
+    const countMap = {};
+    counts.forEach(c => {
+      if (c._id) countMap[c._id.toString()] = c.count;
+    });
+
+    const result = departments.map(d => ({
+      ...d,
+      employeeCount: countMap[d._id.toString()] || 0
+    }));
+
+    res.json(result);
 
   } catch (err) {
     console.error(err);
@@ -64,7 +86,7 @@ exports.create = async function (req, res) {
     }
 
     if (!code || typeof code !== "string" || code.trim().length < 1) {
-        return res.status(400).json({ error: "Department code is required" });
+      return res.status(400).json({ error: "Department code is required" });
     }
 
     if (name.trim().length > 50) {
@@ -79,7 +101,7 @@ exports.create = async function (req, res) {
 
     const existsCode = await Department.findOne({ code: code.trim().toUpperCase(), tenant: tenantId });
     if (existsCode) {
-        return res.status(400).json({ error: "Department code already exists" });
+      return res.status(400).json({ error: "Department code already exists" });
     }
 
     // Create the department
@@ -99,7 +121,7 @@ exports.create = async function (req, res) {
   } catch (err) {
     console.error("Department create error:", err);
     console.error("Error stack:", err.stack);
-    
+
     // Handle duplicate name error (MongoDB unique index)
     // Handle duplicate name/code error (MongoDB unique index)
     if (err.code === 11000) {
@@ -108,16 +130,16 @@ exports.create = async function (req, res) {
       }
       return res.status(400).json({ error: "Department name already exists" });
     }
-    
+
     // Handle validation errors
     if (err.name === 'ValidationError') {
       const messages = Object.values(err.errors || {}).map(e => e.message).join(', ');
       return res.status(400).json({ error: "Validation failed", message: messages });
     }
-    
+
     // Generic error response
-    res.status(500).json({ 
-      error: "Failed to create department", 
+    res.status(500).json({
+      error: "Failed to create department",
       message: err.message || "Unknown error occurred"
     });
   }
@@ -139,17 +161,17 @@ exports.update = async function (req, res) {
 
     if (req.body.code) updatePayload.code = req.body.code.trim().toUpperCase();
     if (req.body.status) updatePayload.status = req.body.status;
-    
+
     // Check for duplicate code if updating
     if (req.body.code) {
-        const existsCode = await Department.findOne({ 
-            code: req.body.code.trim().toUpperCase(), 
-            tenant: tenantId, 
-            _id: { $ne: req.params.id } 
-        });
-        if (existsCode) {
-            return res.status(400).json({ error: "Department code already exists" });
-        }
+      const existsCode = await Department.findOne({
+        code: req.body.code.trim().toUpperCase(),
+        tenant: tenantId,
+        _id: { $ne: req.params.id }
+      });
+      if (existsCode) {
+        return res.status(400).json({ error: "Department code already exists" });
+      }
     }
 
     const updated = await Department.findOneAndUpdate(
@@ -290,7 +312,7 @@ exports.getFullOrgHierarchy = async function (req, res) {
       if (targetDept) {
         targetDept.employees.push(empData);
         // If employee is a manager (has subordinates or is department head), add to managers
-        const hasSubordinates = employees.some(e => 
+        const hasSubordinates = employees.some(e =>
           e.manager && String(e.manager._id || e.manager) === String(emp._id)
         );
         if (hasSubordinates || String(targetDept.head?._id) === String(emp._id)) {
@@ -338,8 +360,8 @@ exports.getFullOrgHierarchy = async function (req, res) {
     const stats = {
       totalDepartments: departments.length,
       totalEmployees: employees.length,
-      departmentsWithEmployees: departments.filter(d => 
-        employees.some(e => 
+      departmentsWithEmployees: departments.filter(d =>
+        employees.some(e =>
           (e.departmentId && String(e.departmentId) === String(d._id)) ||
           e.department === d.name
         )
@@ -356,9 +378,9 @@ exports.getFullOrgHierarchy = async function (req, res) {
 
   } catch (err) {
     console.error("getFullOrgHierarchy error:", err);
-    res.status(500).json({ 
-      error: "Failed to fetch organization hierarchy", 
-      message: err.message 
+    res.status(500).json({
+      error: "Failed to fetch organization hierarchy",
+      message: err.message
     });
   }
 };

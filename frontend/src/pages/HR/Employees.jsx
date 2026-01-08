@@ -117,17 +117,17 @@ export default function Employees() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-slate-900">Employees</h1>
-        <div className="flex gap-2">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Employees</h1>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <button
             onClick={() => { setShowDrafts(!showDrafts); if (!showDrafts) loadDrafts(); }}
-            className={`px-4 py-2 rounded-lg transition shadow-md border ${showDrafts ? 'bg-slate-200 text-slate-800 border-slate-300' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+            className={`px-4 py-2 rounded-lg transition shadow-md border text-sm sm:text-base w-full sm:w-auto ${showDrafts ? 'bg-slate-200 text-slate-800 border-slate-300' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
           >
             {showDrafts ? 'Hide Drafts' : 'Drafts'}
           </button>
-          <button onClick={openNew} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-md">+ Add Employee</button>
+          <button onClick={openNew} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-md text-sm sm:text-base w-full sm:w-auto">+ Add Employee</button>
         </div>
       </div>
 
@@ -164,11 +164,11 @@ export default function Employees() {
       )}
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 px-4 py-3 border-b border-slate-200">
           <select
             value={selectedDepartment}
             onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
           >
             <option value="">All Departments</option>
             {DEPARTMENTS.map((d) => (
@@ -193,87 +193,95 @@ export default function Employees() {
         ) : employees.length === 0 ? (
           <div className="p-8 text-center text-slate-500">No employees yet. Add one to get started!</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Name</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Emp ID</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Email</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Phone</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Role</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Department</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Manager</th>
-                  <th className="px-6 py-3 font-semibold text-slate-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {(() => {
-                  const filtered = employees.filter(emp => {
-                    if (selectedDepartment && emp.department !== selectedDepartment) return false;
-                    if (!searchTerm) return true;
-                    const term = searchTerm.toLowerCase();
-                    const name = getDisplayName(emp).toLowerCase();
-                    const email = (emp.email || '').toLowerCase();
-                    const empId = (emp.employeeId || '').toLowerCase();
-                    return name.includes(term) || email.includes(term) || empId.includes(term);
-                  });
-                  return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(emp => (
-                    <tr key={emp._id} className="hover:bg-slate-50 transition">
-                      <td className="px-6 py-3 font-medium text-slate-900">
-                        <div className="flex items-center gap-3">
-                          {emp.profilePic ? (
-                            <img src={`${BACKEND_URL}${emp.profilePic}`} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 border border-slate-200">
-                              {emp.firstName?.[0]}{emp.lastName?.[0]}
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <div className="inline-block min-w-full align-middle">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700">Name</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700 hidden md:table-cell">Emp ID</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700 hidden lg:table-cell">Email</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700 hidden xl:table-cell">Phone</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700">Role</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700 hidden md:table-cell">Department</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700 hidden lg:table-cell">Manager</th>
+                    <th className="px-4 sm:px-6 py-3 font-semibold text-slate-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {(() => {
+                    const filtered = employees.filter(emp => {
+                      if (selectedDepartment && emp.department !== selectedDepartment) return false;
+                      if (!searchTerm) return true;
+                      const term = searchTerm.toLowerCase();
+                      const name = getDisplayName(emp).toLowerCase();
+                      const email = (emp.email || '').toLowerCase();
+                      const empId = (emp.employeeId || '').toLowerCase();
+                      return name.includes(term) || email.includes(term) || empId.includes(term);
+                    });
+                    return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(emp => (
+                      <tr key={emp._id} className="hover:bg-slate-50 transition">
+                        <td className="px-4 sm:px-6 py-3 font-medium text-slate-900">
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            {emp.profilePic ? (
+                              <img src={`${BACKEND_URL}${emp.profilePic}`} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 border border-slate-200 flex-shrink-0">
+                                {emp.firstName?.[0]}{emp.lastName?.[0]}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate">{getDisplayName(emp)}</div>
+                              <div className="text-xs text-slate-500 md:hidden">{emp.employeeId || '-'}</div>
+                              <div className="text-xs text-slate-500 lg:hidden md:block hidden">{emp.email}</div>
                             </div>
-                          )}
-                          {getDisplayName(emp)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">{emp.employeeId || '-'}</td>
-                      <td className="px-6 py-3 text-slate-600">{emp.email}</td>
-                      <td className="px-6 py-3 text-slate-600">{emp.contactNo || emp.phone || '-'}</td>
-                      <td className="px-6 py-3">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                          {emp.role || '-'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">{emp.department || '-'}</td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {(() => {
-                          if (!emp.manager) return '-';
-                          if (typeof emp.manager === 'string') {
-                            const m = employees.find(e => String(e._id) === String(emp.manager));
-                            return m ? getDisplayName(m) : emp.manager;
-                          }
-                          if (emp.manager && typeof emp.manager === 'object') {
-                            return getDisplayName(emp.manager) || (emp.manager._id ? String(emp.manager._id) : '-');
-                          }
-                          return '-';
-                        })()}
-                      </td>
-                      <td className="px-6 py-3">
-                        <button onClick={() => openView(emp)} className="p-1 rounded hover:bg-slate-100 mr-2" title="View Details">
-                          <Eye className="h-5 w-5 text-slate-600" />
-                        </button>
-                        <button onClick={() => setApplyingLeave(emp)} className="p-1 rounded hover:bg-emerald-50 mr-2" title="Apply Leave" aria-label="Apply leave for employee">
-                          <CalendarIcon className="h-5 w-5 text-emerald-600" />
-                        </button>
-                        <button onClick={() => openEdit(emp)} className="p-1 rounded hover:bg-blue-50 mr-2" title="Edit" aria-label="Edit employee">
-                          <Edit2 className="h-5 w-5 text-blue-600" />
-                        </button>
-                        <button onClick={() => remove(emp._id)} className="p-1 rounded hover:bg-red-50 text-red-600 transition" title="Delete" aria-label="Delete employee">
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ));
-                })()}
-              </tbody>
-            </table>
-            <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-3 text-slate-600 hidden md:table-cell">{emp.employeeId || '-'}</td>
+                        <td className="px-4 sm:px-6 py-3 text-slate-600 hidden lg:table-cell">{emp.email}</td>
+                        <td className="px-4 sm:px-6 py-3 text-slate-600 hidden xl:table-cell">{emp.contactNo || emp.phone || '-'}</td>
+                        <td className="px-4 sm:px-6 py-3">
+                          <span className="inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                            {emp.role || '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-3 text-slate-600 hidden md:table-cell">{emp.department || '-'}</td>
+                        <td className="px-4 sm:px-6 py-3 text-slate-600 hidden lg:table-cell">
+                          {(() => {
+                            if (!emp.manager) return '-';
+                            if (typeof emp.manager === 'string') {
+                              const m = employees.find(e => String(e._id) === String(emp.manager));
+                              return m ? getDisplayName(m) : emp.manager;
+                            }
+                            if (emp.manager && typeof emp.manager === 'object') {
+                              return getDisplayName(emp.manager) || (emp.manager._id ? String(emp.manager._id) : '-');
+                            }
+                            return '-';
+                          })()}
+                        </td>
+                        <td className="px-4 sm:px-6 py-3">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <button onClick={() => openView(emp)} className="p-1.5 rounded hover:bg-slate-100 transition" title="View Details">
+                              <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-slate-600" />
+                            </button>
+                            <button onClick={() => setApplyingLeave(emp)} className="p-1.5 rounded hover:bg-emerald-50 transition" title="Apply Leave" aria-label="Apply leave for employee">
+                              <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600" />
+                            </button>
+                            <button onClick={() => openEdit(emp)} className="p-1.5 rounded hover:bg-blue-50 transition" title="Edit" aria-label="Edit employee">
+                              <Edit2 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                            </button>
+                            <button onClick={() => remove(emp._id)} className="p-1.5 rounded hover:bg-red-50 text-red-600 transition" title="Delete" aria-label="Delete employee">
+                              <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 sm:px-6 py-4 border-t border-slate-200 flex justify-center sm:justify-end">
               <Pagination
                 current={currentPage}
                 pageSize={pageSize}
@@ -288,6 +296,9 @@ export default function Employees() {
                 }).length}
                 onChange={(page) => setCurrentPage(page)}
                 showSizeChanger={false}
+                responsive={true}
+                size="small"
+                className="text-xs sm:text-sm"
               />
             </div>
           </div>
@@ -307,15 +318,16 @@ export default function Employees() {
                   load();
                 }}
                 onCancelEdit={() => setApplyingLeave(null)}
+                onClose={() => setApplyingLeave(null)}
               />
             </div>
           </div>
         )
       }
 
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-        <h3 className="text-lg font-semibold text-slate-900 mb-3">Employees by Department</h3>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-3">Employees by Department</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {DEPARTMENTS.map((dept) => (
             <div key={dept} className="border border-slate-200 rounded-lg p-3">
               <div className="font-semibold text-slate-800 mb-2">{dept}</div>

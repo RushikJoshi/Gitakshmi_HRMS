@@ -3,24 +3,50 @@ const OfferLetterTemplateSchema = require('../models/OfferLetterTemplate');
 // Helper to get model
 const getTemplateModel = (req) => {
     if (req.tenantDB) {
-        return req.tenantDB.model('OfferLetterTemplate', OfferLetterTemplateSchema);
+        // Fix: Do not pass schema here, model is already registered by dbManager
+        return req.tenantDB.model('OfferLetterTemplate');
     }
     // Fallback or error if not using tenantDB
     throw new Error("Tenant Database context missing");
 };
 
 exports.getTemplates = async (req, res) => {
+    console.log(`[OFFER_TEMPLATE_CONTROLLER] getTemplates called for path: ${req.path}`);
     try {
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] getTemplates called`);
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] req.user:`, req.user ? { id: req.user.id, role: req.user.role } : 'null');
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] req.tenantId:`, req.tenantId || 'null');
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] req.tenantDB:`, req.tenantDB ? 'present' : 'null');
+
+        // Backend validation: Ensure user is authenticated and has HR role
+        if (!req.user || !req.user.id) {
+            console.warn(`[OFFER_TEMPLATE_CONTROLLER] Missing user context`);
+            return res.status(400).json({ error: 'User authentication required' });
+        }
+
+        // For tenant-specific operations, ensure tenantId is available
+        if (!req.tenantId) {
+            console.warn(`[OFFER_TEMPLATE_CONTROLLER] Missing tenant context`);
+            return res.status(400).json({ error: 'Tenant context required' });
+        }
+
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] Getting template model...`);
         const Template = getTemplateModel(req);
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] Template model obtained, querying...`);
         const templates = await Template.find({ isActive: true }).sort({ createdAt: -1 });
+
+        console.log(`[OFFER_TEMPLATE_CONTROLLER] Found ${templates.length} templates`);
+
         res.json(templates);
     } catch (err) {
-        console.error("Get templates error:", err);
-        res.status(500).json({ error: "Failed to fetch templates" });
+        console.error(`[OFFER_TEMPLATE_CONTROLLER] Error:`, err);
+        res.status(500).json({ error: "Failed to fetch templates", details: err.message });
     }
 };
 
 exports.getTemplateById = async (req, res) => {
+    console.log(`[OFFER_TEMPLATE_CONTROLLER] getTemplateById called for path: ${req.path}, id: ${req.params.id}`);
+    console.log(`[OFFER_TEMPLATE_CONTROLLER] req.params:`, req.params);
     try {
         const Template = getTemplateModel(req);
         const template = await Template.findById(req.params.id);

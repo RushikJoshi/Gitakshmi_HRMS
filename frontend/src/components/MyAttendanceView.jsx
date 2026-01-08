@@ -22,21 +22,73 @@ export default function MyAttendanceView() {
         try {
             setLoading(true);
             const t = new Date().getTime();
-            const [attRes, holidayRes, settingsRes] = await Promise.all([
+            // Fetch Attendance, Leaves, Holidays, and Settings in parallel
+            const [attRes, leaveRes, holidayRes, settingsRes] = await Promise.all([
                 api.get(`/attendance/my?month=${currentMonth + 1}&year=${currentYear}&t=${t}`),
+                api.get(`/employee/leaves/history?t=${t}`),
                 api.get(`/holidays?t=${t}`),
                 api.get(`/attendance/settings?t=${t}`)
             ]);
 
-            setAttendance(attRes.data);
+            const rawAttendance = attRes.data || [];
+            const leaves = leaveRes.data || [];
+
+            // --- Merge Leaves into Attendance Data (Client-Side Patch) ---
+            // This ensures "On Leave" shows up even if backend sync failed or for Pending leaves
+
+            // 1. Create a map of existing attendance dates
+            const attendanceMap = new Set(rawAttendance.map(a => new Date(a.date).toDateString()));
+
+            // 2. Identify view range
+            const viewStart = new Date(currentYear, currentMonth, 1);
+            const viewEnd = new Date(currentYear, currentMonth + 1, 0);
+
+            const mergedAttendance = [...rawAttendance];
+
+            leaves.forEach(leave => {
+                // Only consider Active leaves
+                if (!['Approved', 'Pending'].includes(leave.status)) return;
+
+                const start = new Date(leave.startDate);
+                const end = new Date(leave.endDate);
+
+                // Iterate through leave days
+                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                    // Check if date is within current view month
+                    if (d < viewStart || d > viewEnd) continue;
+
+                    // If no attendance record exists for this date, create a synthetic one
+                    if (!attendanceMap.has(d.toDateString())) {
+                        mergedAttendance.push({
+                            _id: `synthetic-leave-${d.getTime()}`,
+                            date: d.toISOString(),
+                            status: 'leave', // Force status to leave for visualization
+                            leaveType: leave.leaveType,
+                            isSynthetic: true, // Marker
+                            checkIn: null,
+                            checkOut: null,
+                            workingHours: 0,
+                            isLate: false
+                        });
+                        attendanceMap.add(d.toDateString()); // Prevent dupes if overlapping leaves exist (rare)
+                    }
+                }
+            });
+
+            // Sort by date again after merge
+            mergedAttendance.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            setAttendance(mergedAttendance);
             setHolidays(holidayRes.data || []);
             setSettings(settingsRes.data || {});
 
             // Calculate Summary
-            const stats = attRes.data.reduce((acc, item) => {
+            const stats = mergedAttendance.reduce((acc, item) => {
                 const s = (item.status || '').toLowerCase();
+
                 if (s === 'present' || s === 'half_day') acc.present++;
                 if (s === 'absent') acc.absent++;
+                // "On Leave" count now includes synthetic leaves (Applied/Approved but not synced)
                 if (s === 'leave') acc.leave++;
                 if (item.isLate) acc.late++;
                 acc.hours += (item.workingHours || 0);
@@ -75,7 +127,7 @@ export default function MyAttendanceView() {
         const headers = ["Date", "Status", "Check In", "Check Out", "Working Hours", "Is Late"];
         const rows = attendance.map(item => [
             formatDateDDMMYYYY(item.date),
-            item.status.toUpperCase(),
+            (item.leaveType ? `${item.status} (${item.leaveType})` : item.status).toUpperCase(),
             item.checkIn ? new Date(item.checkIn).toLocaleTimeString() : '-',
             item.checkOut ? new Date(item.checkOut).toLocaleTimeString() : '-',
             item.workingHours || 0,
@@ -95,7 +147,7 @@ export default function MyAttendanceView() {
 
     const filteredAttendance = attendance.filter(item => {
         if (statusFilter === 'all') return true;
-        return item.status.toLowerCase() === statusFilter.toLowerCase();
+        return (item.status || '').toLowerCase() === statusFilter.toLowerCase();
     });
 
     return (

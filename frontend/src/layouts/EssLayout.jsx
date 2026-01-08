@@ -6,7 +6,7 @@ import NotificationDropdown from '../components/NotificationDropdown';
 import SidebarCompanyBlock from '../components/SidebarCompanyBlock';
 import { useAuth } from '../context/AuthContext';
 import { UIContext } from '../context/UIContext';
-import { Sun, Moon, LogOut, Menu } from 'lucide-react';
+import { Sun, Moon, LogOut, Menu, ArrowLeft } from 'lucide-react';
 
 export default function EssLayout() {
   const { logout, user } = useAuth();
@@ -58,6 +58,13 @@ export default function EssLayout() {
         {/* Header */}
         <header className="flex justify-between items-center p-3 md:p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-20">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition text-slate-600 dark:text-slate-300"
+              title="Go Back"
+            >
+              <ArrowLeft size={24} />
+            </button>
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="md:hidden p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition text-slate-600 dark:text-slate-300"
@@ -121,7 +128,7 @@ export default function EssLayout() {
         </header>
 
         {/* Page Content Area */}
-        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-4 md:p-8">
+        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-3 md:p-4">
           <Outlet context={{ activeTab, setActiveTab }} />
         </main>
       </div>

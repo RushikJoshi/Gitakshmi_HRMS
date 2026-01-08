@@ -6,11 +6,13 @@ const attendCtrl = require('../controllers/attendance.controller');
 // --- Employee Self Service ---
 router.post('/punch', auth.authenticate, attendCtrl.punch);
 router.get('/my', auth.authenticate, attendCtrl.getMyAttendance);
+router.get('/today-summary', auth.authenticate, attendCtrl.getTodaySummary);
 
 // --- Manager Routes ---
 router.get('/team', auth.authenticate, attendCtrl.getTeamAttendance);
 
 // --- HR / Admin Routes ---
+router.get('/stats', auth.authenticate, auth.requireHr, attendCtrl.getHRStats);
 router.get('/all', auth.authenticate, auth.requireHr, attendCtrl.getAllAttendance);
 router.get('/settings', auth.authenticate, attendCtrl.getSettings);
 router.put('/settings', auth.authenticate, auth.requireHr, attendCtrl.updateSettings);

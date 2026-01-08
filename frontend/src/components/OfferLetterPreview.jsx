@@ -1,171 +1,198 @@
-import React from 'react';
+import React, {
+  forwardRef,
+  useImperativeHandle,
+  memo,
+  useMemo
+} from 'react';
+import html2canvas from 'html2canvas';
+import './editor/document.css';
 
-export default function OfferLetterPreview({ applicant, offerData, companyInfo }) {
-    const today = new Date().toLocaleDateString('en-IN', {
+/**
+ * FINAL MERGED OFFER LETTER PREVIEW
+ * - LEFT: Full offer letter content (static, legal)
+ * - RIGHT: Template engine + A4 preview + screenshot
+ */
+
+const OfferLetterPreview = memo(
+  forwardRef(
+    (
+      {
+        applicant,
+        offerData,
+        companyInfo,
+        templateType = 'NORMAL',
+        headerHeight = 0,
+        footerHeight = 0,
+        hasHeader = false,
+        hasFooter = false
+      },
+      ref
+    ) => {
+      const isLetterPad = templateType === 'LETTER_PAD';
+
+      /* ------------------ SCREENSHOT SUPPORT ------------------ */
+      useImperativeHandle(ref, () => ({
+        captureScreenshot: async () => {
+          const el = document.getElementById('offer-letter-preview');
+          if (!el) throw new Error('Preview element not found');
+          const canvas = await html2canvas(el, {
+            scale: 1,
+            backgroundColor: '#ffffff',
+            useCORS: true
+          });
+          return canvas.toDataURL('image/png');
+        }
+      }));
+
+      /* ------------------ DATE ------------------ */
+      const today = new Date().toLocaleDateString('en-IN', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
-    });
+      });
 
-    return (
-        <div className="bg-white p-8 max-w-4xl mx-auto shadow-2xl rounded-lg border-2 border-slate-200">
-            {/* Header with Logo */}
-            <div className="flex justify-between items-start mb-8 pb-6 border-b-2 border-blue-600">
-                <div>
-                    <h1 className="text-3xl font-bold text-blue-600 mb-1">
-                        {companyInfo?.name || 'Company Name'}
-                    </h1>
-                    <p className="text-sm text-slate-600">{companyInfo?.tagline || 'Technologies'}</p>
-                </div>
-                {companyInfo?.logo && (
-                    <img src={companyInfo.logo} alt="Company Logo" className="h-16 w-auto" />
-                )}
-            </div>
+      /* ------------------ LETTERHEAD BG ------------------ */
+      const rawBgPath = companyInfo?.branding?.letterheadBg;
+      const bgUrl = rawBgPath
+        ? (rawBgPath.startsWith('http')
+          ? rawBgPath
+          : `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${rawBgPath.startsWith('/') ? '' : '/'}${rawBgPath}`
+        ).replace(/\\/g, '/')
+        : null;
 
-            {/* Reference Number */}
-            <div className="text-right mb-6">
-                <p className="text-xs text-slate-500">
-                    Ref: {companyInfo?.refPrefix || 'OFFER'}/{new Date().getFullYear()}/{Math.floor(Math.random() * 10000)}
-                </p>
-            </div>
+      /* ------------------ BODY HTML (LEFT CONTENT) ------------------ */
+      const previewHtml = useMemo(() => {
+        // Use the fetched template content if available, otherwise default fallback
+        let content = offerData.templateContent || `
+<div class="bg-white p-8 max-w-4xl mx-auto rounded-lg">
+  <div class="flex justify-between items-start mb-8 pb-6 border-b-2 border-blue-600">
+    <div>
+      <h1 class="text-3xl font-bold text-blue-600 mb-1">${companyInfo?.name || 'Company Name'}</h1>
+      <p class="text-sm text-slate-600">${companyInfo?.tagline || 'Technologies'}</p>
+    </div>
+  </div>
+  <div class="text-right mb-6 text-xs text-slate-500">
+    Ref: ${companyInfo?.refPrefix || 'OFFER'}/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}
+  </div>
+  <div class="mb-6">
+    <p class="font-semibold">Ms./Mr. ${applicant?.name}</p>
+    <p class="text-sm">${applicant?.address || '-'}</p>
+  </div>
+  <p class="font-bold underline mb-4">Offer to Join ${companyInfo?.name || 'Our Company'}</p>
+  <p class="mb-4">Dear ${applicant?.name?.split(' ')[0]},</p>
+  <p class="mb-4">
+    We are pleased to offer you the position of
+    <b> ${applicant?.requirementId?.jobTitle || offerData?.position}</b>
+    at our <b>${offerData?.location || 'Ahmedabad'}</b> office.
+  </p>
+  <ol class="list-decimal ml-6 space-y-2 text-sm">
+    <li><b>Date of Joining:</b> ${offerData?.joiningDate || '_________'}</li>
+    <li><b>Probation:</b> ${offerData?.probationPeriod || '3 months'}</li>
+    <li><b>Compensation:</b> As per company policy.</li>
+    <li><b>Verification:</b> Subject to document verification.</li>
+  </ol>
+  <p class="mt-6">We look forward to a long and mutually beneficial association.</p>
+  <div class="mt-12">
+    <p>For ${companyInfo?.name}</p>
+    <p class="mt-6 font-semibold">Authorized Signatory</p>
+  </div>
+  <div class="mt-12 border-t pt-4">
+    <p class="font-semibold mb-2">Acceptance of Offer</p>
+    <p>I accept the above terms.</p>
+    <p class="mt-6 font-semibold">${applicant?.name?.toUpperCase()}</p>
+  </div>
+</div>
+        `;
 
-            {/* Recipient Address */}
-            <div className="mb-6">
-                <p className="font-semibold text-slate-800">Ms./Mr. {applicant?.name}</p>
-                <p className="text-sm text-slate-600">{applicant?.address || applicant?.currentAddress}</p>
-                <p className="text-sm text-slate-600">{applicant?.city}, {applicant?.state}</p>
-                <p className="text-sm text-slate-600">Pin: {applicant?.pincode}</p>
-            </div>
+        // Get issued date (current date when letter is generated)
+        const issuedDate = new Date().toLocaleDateString('en-IN');
 
-            {/* Subject */}
-            <div className="mb-6">
-                <p className="font-bold text-slate-800 underline">
-                    Offer to Join {companyInfo?.name || 'Our Company'}
-                </p>
-            </div>
+        // Replacements Map
+        const replacements = {
+          '{{employee_name}}': applicant?.name || '',
+          '{{candidate_name}}': applicant?.name || '',
+          '{{father_name}}': applicant?.fatherName || '',
+          '{{designation}}': applicant?.requirementId?.jobTitle || offerData?.position || '',
+          '{{joining_date}}': offerData?.joiningDate || '',
+          '{{location}}': offerData?.location || applicant?.workLocation || '',
+          '{{address}}': applicant?.address || '',
+          '{{offer_ref_no}}': `OFFER/${new Date().getFullYear()}/${applicant?._id?.slice(-4).toUpperCase()}`,
+          // Issued Date - support multiple placeholder variations
+          '{{issued_date}}': issuedDate,
+          '{{issuedDate}}': issuedDate, // CamelCase alias
+          '{{ISSUED_DATE}}': issuedDate, // Uppercase alias
+          // Current date (legacy support)
+          '{{current_date}}': issuedDate
+        };
 
-            {/* Salutation */}
-            <div className="mb-4">
-                <p className="text-slate-700">Dear Ms./Mr. {applicant?.name?.split(' ')[0]},</p>
-            </div>
+        // Perform Replacements
+        Object.keys(replacements).forEach(key => {
+          const regex = new RegExp(key, 'g');
+          content = content.replace(regex, replacements[key]);
+        });
 
-            {/* Main Content */}
-            <div className="space-y-4 text-sm text-slate-700 leading-relaxed mb-6">
-                <p>
-                    Congratulations! Further to your application for employment with us, and the subsequent selection process, we
-                    are pleased to <span className="font-semibold">offer you the position of {applicant?.requirementId?.jobTitle || offerData?.position}</span> at
-                    our <span className="font-semibold">{offerData?.location || 'Ahmedabad'}</span> office on the following terms and conditions:
-                </p>
+        // Ensure content is wrapped if it's just raw HTML fragments
+        if (!content.trim().startsWith('<div') && !content.trim().startsWith('<html')) {
+          content = `<div class="p-8">${content}</div>`;
+        }
 
-                <ol className="list-decimal list-inside space-y-3 ml-4">
-                    <li>
-                        <span className="font-semibold">Appointment:</span> You will be appointed as <span className="font-semibold">{applicant?.requirementId?.jobTitle || offerData?.position}</span>,
-                        with your registered address as the location. The employment is headquartered (HQ) is located
-                        at <span className="font-semibold">{companyInfo?.address || 'Company Address'}</span>. You may be required to work at any of our offices.
-                    </li>
+        return content;
+      }, [applicant, offerData, companyInfo]);
 
-                    <li>
-                        <span className="font-semibold">Date of Joining:</span> You are requested to join on or before{' '}
-                        <span className="font-semibold">{offerData?.joiningDate ? new Date(offerData.joiningDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }) : '___________'}</span>.
-                    </li>
+      /* ------------------ RENDER ------------------ */
+      return (
+        <div className="bg-gray-100 p-8 flex justify-center overflow-auto">
+          <div
+            id="offer-letter-preview"
+            className="a4-page shadow-lg relative"
+            style={{
+              width: '210mm',
+              minHeight: '297mm',
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'white',
+              ...(isLetterPad && bgUrl
+                ? {
+                  backgroundImage: `url('${bgUrl}')`,
+                  backgroundSize: '210mm 297mm',
+                  backgroundRepeat: 'no-repeat'
+                }
+                : {})
+            }}
+          >
+            {/* Issue Date - Only show if not in content */}
+            {!previewHtml.includes('Issue Date') && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '5mm',
+                  left: '10mm',
+                  fontSize: '10px',
+                  color: '#9ca3af'
+                }}
+              >
+                Issue Date: {today}
+              </div>
+            )}
 
-                    <li>
-                        <span className="font-semibold">Compensation:</span> Upon your joining company will have a detailed Appointment letter outlining all terms and conditions
-                        of your employment and a detailed compensation structure along with our Space Manual.
-                    </li>
 
-                    <li>
-                        <span className="font-semibold">Probation Period:</span> You will be on probation for a period of{' '}
-                        <span className="font-semibold">{offerData?.probationPeriod || '3 months'}</span> from the date of joining.
-                    </li>
+            {/* Header Spacer */}
+            <div style={{ height: `${headerHeight}mm` }} />
 
-                    <li>
-                        <span className="font-semibold">Terms & Conditions:</span> Your appointment and continued employment with the company is subject to you providing:
-                        <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
-                            <li>All original educational certificates along with one set of photocopies of the same.</li>
-                            <li>Experience & Relieving letters from previous employers (if applicable).</li>
-                            <li>Residence Proof / Aadhaar Card / Telephone Bill / Ration Card.</li>
-                            <li>Passport size photographs.</li>
-                            <li>PAN Card copy.</li>
-                        </ul>
-                    </li>
+            {/* Body */}
+            <div
+              className="flex-1 formatted-content"
+              style={{ padding: '10mm' }}
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
 
-                    <li>
-                        <span className="font-semibold">Background Verification:</span> Your employment is subject to satisfactory verification of your past
-                        employment, education credentials and character references. All information provided by you during the selection process will be verified.
-                    </li>
-                </ol>
-
-                <p className="mt-4">
-                    <span className="font-semibold">Note:</span> Please sign the copy of this letter as token of your acceptance and send the signed copy to
-                    us along with the above-mentioned documents. In case you fail to do so, this offer letter shall not be allowed to join the organization.
-                </p>
-
-                <p className="mt-4">
-                    We are sure that you will enjoy working with us and we look forward to a long & mutually beneficial association.
-                    We wish you all the very best in your new assignment and sincerely hope that you will contribute significantly to the
-                    continued success of our organization.
-                </p>
-
-                <p className="mt-4">
-                    As a new entrant, we would like to advise – <span className="italic">fearlessly internalize and uphold the spirit of Gitakshmi</span>.
-                </p>
-
-                <p className="mt-4">
-                    <span className="font-semibold">Stability, Integrity and Growth.</span>
-                </p>
-            </div>
-
-            {/* Signature Section */}
-            <div className="mt-12 mb-8">
-                <p className="text-sm text-slate-700 mb-1">Yours Truly,</p>
-                <p className="text-sm font-semibold text-slate-800 mb-8">
-                    For {companyInfo?.name || 'Company Name'}
-                </p>
-
-                {companyInfo?.signature && (
-                    <img src={companyInfo.signature} alt="Signature" className="h-12 mb-2" />
-                )}
-
-                <div className="border-t border-slate-300 pt-2 inline-block">
-                    <p className="text-sm font-semibold text-slate-800">Authorized Signatory</p>
-                    <p className="text-xs text-slate-600">{companyInfo?.signatoryName || 'HR Manager'}</p>
-                </div>
-            </div>
-
-            {/* Acceptance Section */}
-            <div className="mt-12 pt-6 border-t-2 border-slate-300">
-                <p className="text-sm font-semibold text-slate-800 mb-4">Acceptance of Offer:</p>
-                <p className="text-sm text-slate-700 mb-6">
-                    I have read and understood all the terms and conditions as set forth in this offer letter and the annexure to
-                    the same.
-                </p>
-
-                <div className="grid grid-cols-2 gap-8">
-                    <div>
-                        <p className="text-xs text-slate-500 mb-8">Your name in capital letters</p>
-                        <div className="border-b border-slate-400 pb-1">
-                            <p className="text-sm font-semibold text-slate-800">{applicant?.name?.toUpperCase()}</p>
-                        </div>
-                    </div>
-
-                    <div>
-                        <p className="text-xs text-slate-500 mb-8">Your Signature</p>
-                        <div className="border-b border-slate-400 h-12"></div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Footer */}
-            <div className="mt-8 pt-4 border-t border-slate-200 text-center">
-                <p className="text-xs text-slate-500">{companyInfo?.address || 'Company Address'}</p>
-                <p className="text-xs text-slate-500">
-                    {companyInfo?.phone && `Phone: ${companyInfo.phone} | `}
-                    {companyInfo?.email && `Email: ${companyInfo.email} | `}
-                    {companyInfo?.website && `Website: ${companyInfo.website}`}
-                </p>
-                <p className="text-xs text-slate-400 mt-2">Page 1 of 1</p>
-            </div>
+            {/* Footer Spacer */}
+            <div style={{ height: `${footerHeight}mm` }} />
+          </div>
         </div>
-    );
-}
+      );
+    }
+  )
+);
+
+export default OfferLetterPreview;

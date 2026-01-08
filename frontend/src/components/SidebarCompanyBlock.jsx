@@ -1,17 +1,24 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 export default function SidebarCompanyBlock() {
+  const { user, isInitialized } = useAuth();
   const [tenant, setTenant] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
+    if (!isInitialized) return;
+    if (!user) return;
+    // Only fetch tenant info if validating as HR/Admin/Employee
+    if (user.role === 'candidate') return;
+
     let mounted = true;
     api.get('/tenants/me').then(res => { if (mounted) setTenant(res.data); }).catch(() => { });
     return () => { mounted = false; };
-  }, []);
+  }, [user, isInitialized]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

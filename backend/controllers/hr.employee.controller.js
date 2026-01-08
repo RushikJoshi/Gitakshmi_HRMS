@@ -1,6 +1,5 @@
 const Tenant = require("../models/Tenant");
 const CounterSchema = require("../models/Counter");
-const EmployeeSchema = require("../models/Employee");
 const mongoose = require("mongoose");
 
 // Global counter model (stored in main connection, not tenant databases)
@@ -17,7 +16,8 @@ function getGlobalCounter() {
 }
 
 /* ---------------------------------------------
-   HELPER → Get model from tenantDB
+   HELPER → Get models from tenantDB
+   Models are already registered by dbManager, just retrieve them
 --------------------------------------------- */
 function getModels(req) {
   if (!req.tenantDB) {
@@ -25,15 +25,18 @@ function getModels(req) {
   }
   const db = req.tenantDB;
   try {
+    // Models are already registered by dbManager, just retrieve them
+    // Do NOT pass schema - use connection.model(name) only
     return {
-      Employee: db.model("Employee", EmployeeSchema),
+      Employee: db.model("Employee"),
       LeavePolicy: db.model("LeavePolicy"),
       LeaveBalance: db.model("LeaveBalance")
       // Counter is now global, not per-tenant
     };
   } catch (err) {
-    console.error("Error in getModels:", err);
-    throw err;
+    console.error("[getModels] Error retrieving models:", err.message);
+    console.error("[getModels] Error stack:", err.stack);
+    throw new Error(`Failed to retrieve models from tenant database: ${err.message}`);
   }
 }
 
@@ -180,32 +183,129 @@ exports.preview = async (req, res) => {
 --------------------------------------------- */
 exports.list = async (req, res) => {
   try {
-    const { Employee } = getModels(req);
-    const tenantId = req.tenantId;
-    const { department } = req.query || {};
-    const filter = { tenant: tenantId };
+    console.log(`[EMPLOYEE_LIST] ${req.method} ${req.path} - Starting employee list request`);
+    
+    // Step 1: Validate user authentication
+    if (!req.user) {
+      console.error("[EMPLOYEE_LIST] ERROR: req.user is missing. Auth middleware may not be applied correctly.");
+      return res.status(401).json({ 
+        success: false, 
+        error: "unauthorized", 
+        message: "User authentication required" 
+      });
+    }
+
+    console.log(`[EMPLOYEE_LIST] User authenticated: ${req.user.id}, role: ${req.user.role}`);
+
+    // Step 2: Validate tenant context
+    const tenantId = req.user.tenantId || req.tenantId;
+    if (!tenantId) {
+      console.error("[EMPLOYEE_LIST] ERROR: tenantId not found in req.user.tenantId or req.tenantId");
+      console.error("[EMPLOYEE_LIST] req.user:", JSON.stringify(req.user, null, 2));
+      return res.status(400).json({ 
+        success: false, 
+        error: "tenant_missing", 
+        message: "Tenant ID is required. Please ensure user is associated with a tenant." 
+      });
+    }
+
+    console.log(`[EMPLOYEE_LIST] Tenant ID: ${tenantId}`);
+
+    // Step 3: Ensure tenantDB is available
+    if (!req.tenantDB) {
+      console.error("[EMPLOYEE_LIST] ERROR: req.tenantDB is not available. Tenant middleware may not be applied correctly.");
+      return res.status(500).json({ 
+        success: false, 
+        error: "tenant_db_unavailable", 
+        message: "Tenant database connection not available. Please check tenant middleware configuration." 
+      });
+    }
+
+    console.log(`[EMPLOYEE_LIST] Tenant DB connection available`);
+
+    // Step 4: Get models with error handling
+    let Employee;
+    try {
+      const models = getModels(req);
+      Employee = models.Employee;
+      if (!Employee) {
+        throw new Error("Employee model is not available");
+      }
+      console.log(`[EMPLOYEE_LIST] Employee model loaded successfully`);
+    } catch (modelError) {
+      console.error("[EMPLOYEE_LIST] ERROR: Failed to get Employee model:", modelError.message);
+      console.error("[EMPLOYEE_LIST] Model error stack:", modelError.stack);
+      return res.status(500).json({ 
+        success: false, 
+        error: "model_error", 
+        message: "Failed to load Employee model. Please check database connection." 
+      });
+    }
+
+    // Step 5: Build query filter with tenant isolation
+    const { department, status } = req.query || {};
+    const filter = { tenant: tenantId }; // Employee schema uses 'tenant' field, not 'tenantId'
+    
     if (department) {
       filter.department = department;
+      console.log(`[EMPLOYEE_LIST] Filtering by department: ${department}`);
     }
 
     // Default to hiding drafts unless specifically asked for
-    if (!req.query.status) {
+    if (!status) {
       filter.status = { $ne: 'Draft' };
+      console.log(`[EMPLOYEE_LIST] Default filter: excluding Draft status`);
     } else {
-      filter.status = req.query.status;
+      filter.status = status;
+      console.log(`[EMPLOYEE_LIST] Filtering by status: ${status}`);
     }
 
-    const items = await Employee.find(filter)
-      .select("_id firstName lastName middleName email department departmentId role manager employeeId contactNo joiningDate profilePic status lastStep gender dob maritalStatus bloodGroup nationality fatherName motherName emergencyContactName emergencyContactNumber tempAddress permAddress experience jobType bankDetails education documents")
-      .populate('departmentId', 'name')
-      .populate('manager', 'firstName lastName employeeId')
-      .sort({ createdAt: -1 })
-      .lean();
+    console.log(`[EMPLOYEE_LIST] Query filter:`, JSON.stringify(filter, null, 2));
 
-    res.json({ success: true, data: items });
+    // Step 6: Execute query with safe populate
+    let items;
+    try {
+      const query = Employee.find(filter)
+        .select("_id firstName lastName middleName email department departmentId role manager employeeId contactNo joiningDate profilePic status lastStep gender dob maritalStatus bloodGroup nationality fatherName motherName emergencyContactName emergencyContactNumber tempAddress permAddress experience jobType bankDetails education documents")
+        .sort({ createdAt: -1 });
+
+      // Safe populate - will not crash if references are missing
+      query.populate('departmentId', 'name');
+      query.populate('manager', 'firstName lastName employeeId');
+      
+      items = await query.lean();
+      
+      console.log(`[EMPLOYEE_LIST] Query successful. Found ${items.length} employees`);
+    } catch (queryError) {
+      console.error("[EMPLOYEE_LIST] ERROR: Database query failed:", queryError.message);
+      console.error("[EMPLOYEE_LIST] Query error stack:", queryError.stack);
+      console.error("[EMPLOYEE_LIST] Query error name:", queryError.name);
+      return res.status(500).json({ 
+        success: false, 
+        error: "query_failed", 
+        message: "Failed to fetch employees from database. Please check database connection and schema." 
+      });
+    }
+
+    // Step 7: Return success response
+    console.log(`[EMPLOYEE_LIST] Returning ${items.length} employees to client`);
+    return res.json({ success: true, data: items });
+
   } catch (err) {
-    console.error("LIST ERROR:", err);
-    res.status(500).json({ success: false, error: "list_failed", details: err.message });
+    // Catch-all for any unexpected errors
+    console.error("[EMPLOYEE_LIST] UNEXPECTED ERROR:", err);
+    console.error("[EMPLOYEE_LIST] Error name:", err.name);
+    console.error("[EMPLOYEE_LIST] Error message:", err.message);
+    console.error("[EMPLOYEE_LIST] Error stack:", err.stack);
+    
+    // Ensure we always return a response
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        success: false, 
+        error: "internal_server_error", 
+        message: err.message || "An unexpected error occurred while fetching employees" 
+      });
+    }
   }
 };
 
@@ -981,32 +1081,35 @@ exports.getTopLevelEmployees = async (req, res) => {
 --------------------------------------------- */
 exports.getHierarchy = async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    // Safe depth parsing: default 10, min 1, max 20
-    const depth = Math.min(Math.max(parseInt(req.query.depth || '10', 10) || 10, 1), 20);
+    // Validate tenant context
+    if (!req.user || !req.user.tenantId) {
+      console.error("getHierarchy ERROR: Missing user or tenantId in request");
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'User context or tenant not found'
+      });
+    }
 
-    // Validate tenantId
+    const tenantId = req.user.tenantId || req.tenantId;
     if (!tenantId) {
+      console.error("getHierarchy ERROR: tenantId not available");
       return res.status(400).json({
         success: false,
         error: 'tenant_missing',
-        message: 'Tenant not resolved for request'
+        message: 'Tenant ID is required'
       });
     }
+
+    // Safe depth parsing: default 10, min 1, max 20
+    const depth = Math.min(Math.max(parseInt(req.query.depth || '10', 10) || 10, 1), 20);
 
     // Ensure tenantDB is available
     if (!req.tenantDB) {
       try {
         const getTenantDB = require('../utils/tenantDB');
         req.tenantDB = await getTenantDB(tenantId);
-        if (req.tenantDB) {
-          const EmployeeSchema = require('../models/Employee');
-          try {
-            req.tenantDB.model('Employee', EmployeeSchema);
-          } catch (e) {
-            // Model may already be registered
-          }
-        }
+        // Models are already registered by dbManager, no need to register here
       } catch (e) {
         console.error('getHierarchy: failed to get tenantDB', e.message);
         return res.status(500).json({

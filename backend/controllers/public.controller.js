@@ -2,57 +2,60 @@ const ApplicantSchema = require('../models/Applicant');
 const multer = require('multer');
 const path = require('path');
 const Tenant = require('../models/Tenant');
+const getTenantDB = require('../utils/tenantDB');
+const EmailService = require('../services/email.service');
 
-// Configure multer for resume upload
+/* ----------------------------------------------------
+   MULTER CONFIG (RESUME UPLOAD)
+---------------------------------------------------- */
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+  destination: (req, file, cb) => {
     cb(null, path.join(__dirname, '../uploads/'));
   },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, 'resume-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: function (req, file, cb) {
-    if (file.mimetype === 'application/pdf' ||
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowed =
+      file.mimetype === 'application/pdf' ||
       file.mimetype === 'application/msword' ||
-      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF and Word documents are allowed'));
-    }
+      file.mimetype ===
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    allowed ? cb(null, true) : cb(new Error('Only PDF and Word files allowed'));
   }
 });
 
 /* ----------------------------------------------------
-   GET PUBLIC JOBS
+   GET PUBLIC JOBS (BY TENANT ID)
 ---------------------------------------------------- */
 exports.getPublicJobs = async (req, res) => {
   try {
     const { tenantId } = req.query;
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant ID is required" });
-    }
+    if (!tenantId) return res.status(400).json({ error: "Tenant ID required" });
 
     // Resolve tenant DB
     const getTenantDB = require('../utils/tenantDB');
     const tenantDB = await getTenantDB(tenantId);
-
-    // Register Requirement model if not already
-    let Requirement;
-    try {
-      Requirement = tenantDB.model("Requirement");
-    } catch (e) {
-      Requirement = tenantDB.model("Requirement", require('../models/Requirement'));
-    }
+    const Requirement = tenantDB.model("Requirement");
 
     // Fetch jobs
-    const jobs = await Requirement.find({ tenant: tenantId, status: 'Open' })
-      .select('jobTitle department vacancy createdAt')
+    const jobs = await Requirement.find({
+      tenant: tenantId,
+      status: 'Open',
+      $or: [
+        { visibility: { $in: ['External', 'Both'] } },
+        { visibility: { $exists: false } }, // Treat missing field as External
+        { visibility: null }
+      ]
+    })
+      .select('jobTitle department vacancy createdAt tenant visibility employmentType location')
       .sort({ createdAt: -1 });
 
     res.json(jobs);
@@ -63,45 +66,88 @@ exports.getPublicJobs = async (req, res) => {
 };
 
 /* ----------------------------------------------------
-   GET PUBLIC JOBS BY COMPANY CODE
+   GET PUBLIC JOBS (BY COMPANY CODE)
 ---------------------------------------------------- */
 exports.getPublicJobsByCompanyCode = async (req, res) => {
   try {
     const { companyCode } = req.params;
-    if (!companyCode) {
-      return res.status(400).json({ error: "Company code is required" });
-    }
+    if (!companyCode)
+      return res.status(400).json({ error: "Company code required" });
 
     // Find tenant by human-readable code
     const tenant = await Tenant.findOne({ code: companyCode });
-
-    if (!tenant) {
+    if (!tenant)
       return res.status(404).json({ error: "Company not found" });
-    }
 
     const tenantId = tenant._id;
 
-    // Resolve tenant DB
-    const getTenantDB = require('../utils/tenantDB');
-    const tenantDB = await getTenantDB(tenantId);
+    const tenantDB = await getTenantDB(tenant._id);
+    const Requirement = tenantDB.model("Requirement");
 
-    // Register Requirement model if not already
-    let Requirement;
-    try {
-      Requirement = tenantDB.model("Requirement");
-    } catch (e) {
-      Requirement = tenantDB.model("Requirement", require('../models/Requirement'));
-    }
-
-    // Fetch jobs
-    const jobs = await Requirement.find({ tenant: tenantId, status: 'Open' })
-      .select('jobTitle department vacancy createdAt tenant')
+    const jobs = await Requirement.find({
+      tenant: tenant._id,
+      status: 'Open',
+      $or: [
+        { visibility: { $in: ['External', 'Both'] } },
+        { visibility: { $exists: false } },
+        { visibility: null }
+      ]
+    })
+      .select('jobTitle department vacancy createdAt tenant visibility employmentType location')
       .sort({ createdAt: -1 });
 
     res.json(jobs);
   } catch (err) {
-    console.error("Get public jobs by code error:", err);
+    console.error("Get jobs by company code error:", err);
     res.status(500).json({ error: "Failed to fetch jobs" });
+  }
+};
+
+/* ----------------------------------------------------
+   RESOLVE COMPANY CODE TO TENANT ID
+---------------------------------------------------- */
+exports.resolveCompanyCode = async (req, res) => {
+  try {
+    const { code } = req.params;
+    if (!code) return res.status(400).json({ error: "Code required" });
+
+    const tenant = await Tenant.findOne({ code });
+    if (!tenant) return res.status(404).json({ error: "Company not found" });
+
+    res.json({ tenantId: tenant._id, companyName: tenant.name });
+  } catch (err) {
+    console.error("Resolve code error:", err);
+    res.status(500).json({ error: "Failed to resolve company" });
+  }
+};
+
+/* ----------------------------------------------------
+   GET SINGLE PUBLIC JOB (BY ID)
+---------------------------------------------------- */
+exports.getPublicJobById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tenantId } = req.query;
+
+    if (!id || !tenantId || tenantId === 'null' || tenantId === 'undefined') {
+      return res.status(400).json({ error: "Valid Job ID and Tenant ID are required" });
+    }
+
+    const getTenantDB = require('../utils/tenantDB');
+    const tenantDB = await getTenantDB(tenantId);
+    const Requirement = tenantDB.model("Requirement");
+
+    const job = await Requirement.findOne({ _id: id, tenant: tenantId })
+      .select('jobTitle department vacancy status description jobVisibility experience');
+
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    res.json(job);
+  } catch (err) {
+    console.error("Get single job error:", err);
+    res.status(500).json({ error: "Failed to fetch job details" });
   }
 };
 
@@ -112,83 +158,95 @@ exports.applyJob = [
   upload.single('resume'),
   async (req, res) => {
     try {
-      const {
-        requirementId, name, email, mobile, emergencyContact, dob, workLocation,
-        intro, experience, relevantExperience, currentCompany, currentDesignation,
-        currentlyWorking, noticePeriod, currentCTC, takeHome, expectedCTC,
-        isFlexible, hasOtherOffer, relocate, reasonForChange, linkedin
+      let {
+        tenantId,
+        requirementId,
+        name,
+        fatherName,
+        email,
+        mobile,
+        experience,
+        address,
+        location,
+        currentCompany,
+        currentDesignation,
+        expectedCTC,
+        linkedin,
+        dob // Added Date of Birth
       } = req.body;
 
-      if (!requirementId || !name || !email || !mobile || !experience) {
+      // Robustly resolve tenantId (Frontend sends it in headers mostly)
+      if (!tenantId) {
+        tenantId = req.headers['x-tenant-id'] || req.query.tenantId;
+      }
+
+      if (!tenantId || tenantId === 'null' || tenantId === 'undefined' || !requirementId || !name || !email) {
+        console.warn(`[APPLY_JOB] Validation failed. tenantId: ${tenantId}, requirementId: ${requirementId}, name: ${name}, email: ${email}`);
         return res.status(400).json({
-          error: "Required fields missing: requirementId, name, email, mobile, experience"
+          error: "Valid tenantId, requirementId, name, and email are required"
         });
       }
 
-      // Resolve tenant DB if not present (because we moved route before middleware)
-      let tenantDB = req.tenantDB;
-      if (!tenantDB) {
-        const tenantId = req.headers['x-tenant-id'] || req.query.tenantId || req.body.tenantId;
-        if (!tenantId) {
-          return res.status(400).json({ error: "Tenant ID is required (header or query)" });
-        }
-        const getTenantDB = require('../utils/tenantDB');
-        tenantDB = await getTenantDB(tenantId);
-      }
-
-      // Get Applicant model for this tenant
+      const tenantDB = await getTenantDB(tenantId);
       const Applicant = tenantDB.model("Applicant", ApplicantSchema);
+      const Requirement = tenantDB.model("Requirement");
 
-      // Verify requirement exists
-      const Requirement = tenantDB.model("Requirement", require('../models/Requirement'));
       const requirement = await Requirement.findById(requirementId);
-      if (!requirement) {
+      if (!requirement)
         return res.status(404).json({ error: "Requirement not found" });
-      }
 
-      // Check if applicant already exists for this requirement
-      const existingApplicant = await Applicant.findOne({
-        requirementId: requirementId,
+      const exists = await Applicant.findOne({
+        requirementId,
         email: email.toLowerCase()
       });
 
-      if (existingApplicant) {
+      if (exists)
         return res.status(409).json({
-          error: "You have already applied for this position"
+          error: "You have already applied for this job"
         });
-      }
 
       // Create new applicant
       const applicant = new Applicant({
+        tenant: tenantId,
+        candidateId: req.user?.id || null, // Link to candidate account
         requirementId,
         name: name.trim(),
+        fatherName: fatherName?.trim(),
         email: email.toLowerCase().trim(),
-        mobile: mobile.trim(),
-        emergencyContact: emergencyContact ? emergencyContact.trim() : undefined,
-        dob: dob || undefined,
-        workLocation: workLocation ? workLocation.trim() : undefined,
-
-        intro: intro ? intro.trim() : undefined,
-        experience: experience.trim(),
-        relevantExperience: relevantExperience ? relevantExperience.trim() : undefined,
-        currentCompany: currentCompany ? currentCompany.trim() : undefined,
-        currentDesignation: currentDesignation ? currentDesignation.trim() : undefined,
-        currentlyWorking: currentlyWorking === 'true' || currentlyWorking === true,
-        noticePeriod: noticePeriod === 'true' || noticePeriod === true,
-        currentCTC: currentCTC ? currentCTC.trim() : undefined,
-        takeHome: takeHome ? takeHome.trim() : undefined,
-        expectedCTC: expectedCTC ? expectedCTC.trim() : undefined,
-        isFlexible: isFlexible === 'true' || isFlexible === true,
-        hasOtherOffer: hasOtherOffer === 'true' || hasOtherOffer === true,
-        relocate: relocate === 'true' || relocate === true,
-        reasonForChange: reasonForChange ? reasonForChange.trim() : undefined,
-        linkedin: linkedin ? linkedin.trim() : undefined,
-
-        resume: req.file ? req.file.filename : null,
+        mobile: mobile?.trim(),
+        experience: experience?.trim(),
+        address: address?.trim(),
+        location: location?.trim(),
+        currentCompany: currentCompany?.trim(),
+        currentDesignation: currentDesignation?.trim(),
+        expectedCTC: expectedCTC?.trim(),
+        linkedin: linkedin?.trim(),
+        dob: dob || null, // Allow DOB to be saved
+        resume: req.file?.filename || null,
         status: 'Applied'
       });
 
       await applicant.save();
+
+      // --- SEND EMAIL NOTIFICATION (DYNAMIC) ---
+      try {
+        console.log(`📧 [APPLY_JOB] Initiating email to: ${email}`);
+
+        // Use standard status template for initial "Applied" status
+        await EmailService.sendStatusEmail(
+          applicant.email,
+          applicant.name,
+          requirement.jobTitle,
+          applicant._id,
+          'Applied'
+        );
+
+        console.log(`✅ [APPLY_JOB] Notification sent successfully to ${applicant.email}`);
+
+      } catch (emailError) {
+        console.error("⚠️ [APPLY_JOB] Failed to send email:", emailError.message);
+        // Don't fail the request, just log it. The application is already saved.
+      }
 
       res.status(201).json({
         message: "Application submitted successfully",

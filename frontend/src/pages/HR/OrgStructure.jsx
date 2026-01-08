@@ -231,7 +231,7 @@ export default function OrgStructure() {
             </div>
 
             {/* Global Overlay Styles */}
-            <style jsx global>{`
+            <style>{`
                 .no-scrollbar::-webkit-scrollbar { display: none; }
                 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
                 .react-organizational-chart { width: auto !important; margin: 0 auto; }

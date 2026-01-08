@@ -1,14 +1,47 @@
 const mongoose = require('mongoose');
 const notificationController = require('../controllers/notification.controller');
 
-const getModels = (req) => ({
-    Regularization: req.tenantDB.model('Regularization'),
-    Attendance: req.tenantDB.model('Attendance'),
-    LeaveRequest: req.tenantDB.model('LeaveRequest'),
-    LeaveBalance: req.tenantDB.model('LeaveBalance'),
-    Employee: req.tenantDB.model('Employee'),
-    AuditLog: req.tenantDB.model('AuditLog')
-});
+const getModels = (req) => {
+  if (req.tenantDB) {
+    try {
+      return {
+        Regularization: req.tenantDB.model('Regularization'),
+        Attendance: req.tenantDB.model('Attendance'),
+        LeaveRequest: req.tenantDB.model('LeaveRequest'),
+        LeaveBalance: req.tenantDB.model('LeaveBalance'),
+        Employee: req.tenantDB.model('Employee'),
+        AuditLog: req.tenantDB.model('AuditLog')
+      };
+    } catch (error) {
+      // Models not registered, register them
+      console.log(`[REGULARIZATION_CONTROLLER] Registering models in tenant DB`);
+      const RegularizationSchema = require('../models/Regularization');
+      const AttendanceSchema = require('../models/Attendance');
+      const LeaveRequestSchema = require('../models/LeaveRequest');
+      const LeaveBalanceSchema = require('../models/LeaveBalance');
+      const EmployeeSchema = require('../models/Employee');
+      const AuditLogSchema = require('../models/AuditLog');
+      return {
+        Regularization: req.tenantDB.model('Regularization', RegularizationSchema),
+        Attendance: req.tenantDB.model('Attendance', AttendanceSchema),
+        LeaveRequest: req.tenantDB.model('LeaveRequest', LeaveRequestSchema),
+        LeaveBalance: req.tenantDB.model('LeaveBalance', LeaveBalanceSchema),
+        Employee: req.tenantDB.model('Employee', EmployeeSchema),
+        AuditLog: req.tenantDB.model('AuditLog', AuditLogSchema)
+      };
+    }
+  } else {
+    // For super admin or testing, use main connection
+    return {
+      Regularization: mongoose.model('Regularization'),
+      Attendance: mongoose.model('Attendance'),
+      LeaveRequest: mongoose.model('LeaveRequest'),
+      LeaveBalance: mongoose.model('LeaveBalance'),
+      Employee: mongoose.model('Employee'),
+      AuditLog: mongoose.model('AuditLog')
+    };
+  }
+};
 
 // Helper: Calculate Duration in Hours
 const calculateDuration = (checkIn, checkOut) => {

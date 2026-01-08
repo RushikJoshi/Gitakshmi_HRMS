@@ -1,11 +1,16 @@
 // middleware/tenant.middleware.js
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
-// Use centralized tenant DB helper (which now handles model registration)
+// Use centralized tenant DB helper
 const getTenantDB = require('../utils/tenantDB');
 
 module.exports = async function tenantResolver(req, res, next) {
   try {
+    // Defensive logging for debugging
+    console.log(`[TENANT_MIDDLEWARE] ${req.method} ${req.path}`);
+    console.log(`[TENANT_MIDDLEWARE] req.user:`, req.user ? { id: req.user.id, role: req.user.role, tenantId: req.user.tenantId } : 'null');
+    console.log(`[TENANT_MIDDLEWARE] Authorization header:`, req.headers.authorization ? 'present' : 'missing');
+
     // Skip tenant resolution for OPTIONS requests (CORS preflight)
     if (req.method === 'OPTIONS') {
       return next();
@@ -16,6 +21,7 @@ module.exports = async function tenantResolver(req, res, next) {
       const tenantId = req.headers["x-tenant-id"] || req.query.tenantId;
       if (tenantId) {
         req.tenantId = tenantId;
+        // dbManager (called by getTenantDB) handles caching and model registration
         req.tenantDB = await getTenantDB(tenantId);
         return next();
       } else {
@@ -36,7 +42,9 @@ module.exports = async function tenantResolver(req, res, next) {
           try {
             const payload = jwt.verify(token, process.env.JWT_SECRET || "hrms_secret_key_123");
             tenantId = payload.tenantId || payload.tenant || tenantId;
+            console.log(`[TENANT_MIDDLEWARE] Extracted tenantId from token: ${tenantId}`);
           } catch (e) {
+            console.log(`[TENANT_MIDDLEWARE] Failed to verify token: ${e.message}`);
             // ignore invalid token here; auth middleware will handle auth failures
           }
         }
@@ -45,10 +53,41 @@ module.exports = async function tenantResolver(req, res, next) {
 
     req.tenantId = tenantId;
 
-    // If tenant ID not required for PSA routes or no tenant info found, continue
-    if (!tenantId) return next();
+    // Skip tenant resolution for super admin
+    if (req.user && req.user.role === 'psa') {
+      console.log(`[TENANT_MIDDLEWARE] Skipping tenant resolution for super admin`);
+      return next();
+    }
 
-    // 2️⃣ Get tenant-specific DB connection (model registration is automatic inside getTenantDB)
+    // If tenant ID not required for PSA routes or no tenant info found, continue
+    if (!tenantId) {
+      console.log(`[TENANT_MIDDLEWARE] No tenantId found, proceeding without tenantDB`);
+      return next();
+    }
+
+    // 2️⃣ Get tenant-specific DB connection (helper resolves id->code if needed)
+    console.log(`[TENANT_MIDDLEWARE] Getting tenant DB for tenantId: ${tenantId}`);
+
+    // If tenantId is a CODE (not an ObjectId), we must resolve it to an ObjectId
+    // because models (like Notification) reference tenant as ObjectId.
+    if (!mongoose.Types.ObjectId.isValid(tenantId)) {
+      let Tenant;
+      try {
+        Tenant = mongoose.model('Tenant');
+      } catch (e) {
+        Tenant = require('../models/Tenant');
+      }
+
+      const t = await Tenant.findOne({ code: tenantId }).select('_id').lean();
+      if (t) {
+        req.tenantId = t._id.toString();
+        console.log(`[TENANT_MIDDLEWARE] Resolved tenant code ${tenantId} to ID ${req.tenantId}`);
+      } else {
+        console.warn(`[TENANT_MIDDLEWARE] Could not resolve tenant code: ${tenantId}`);
+      }
+    }
+
+    // dbManager (called by getTenantDB) handles caching and model registration
     req.tenantDB = await getTenantDB(tenantId);
 
     next();
@@ -67,4 +106,3 @@ module.exports = async function tenantResolver(req, res, next) {
     }
   }
 };
-

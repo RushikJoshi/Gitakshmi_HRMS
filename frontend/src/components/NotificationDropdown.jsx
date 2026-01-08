@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../utils/api';
+import api from '../utils/api'; // Centralized axios instance with auth & tenant headers
 import { useAuth } from '../context/AuthContext';
 
 
@@ -15,6 +15,7 @@ export default function NotificationDropdown() {
 
     const fetchNotifications = async () => {
         try {
+            // Uses centralized api instance - automatically includes Authorization & X-Tenant-ID headers
             const res = await api.get('/notifications');
             if (res.data) {
                 setNotifications(res.data.notifications || []);

@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const Tenant = require('../models/Tenant');
 const Employee = require('../models/Employee');
 const Counter = require('../models/Counter');
+const getTenantDB = require('../utils/tenantDB');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/hrms';
 
@@ -85,6 +86,10 @@ async function seedDatabase() {
     // Create sample employees for the first tenant
     if (createdTenants.length > 0) {
       const tenantId = createdTenants[0]._id;
+      const tenantDB = await getTenantDB(tenantId);
+
+      // Employee model should already be registered by dbManager
+      const EmployeeModel = tenantDB.model('Employee');
 
       const employees = [
         {
@@ -96,7 +101,7 @@ async function seedDatabase() {
           password: 'emp123',
           department: 'Engineering',
           position: 'Senior Developer',
-          status: 'active',
+          status: 'Active',
         },
         {
           tenant: tenantId,
@@ -107,7 +112,7 @@ async function seedDatabase() {
           password: 'emp123',
           department: 'HR',
           position: 'HR Manager',
-          status: 'active',
+          status: 'Active',
         },
         {
           tenant: tenantId,
@@ -118,14 +123,14 @@ async function seedDatabase() {
           password: 'emp123',
           department: 'Sales',
           position: 'Sales Executive',
-          status: 'active',
+          status: 'Active',
         },
       ];
 
       for (const empData of employees) {
-        const existing = await Employee.findOne({ email: empData.email });
+        const existing = await EmployeeModel.findOne({ email: empData.email });
         if (!existing) {
-          const emp = await Employee.create(empData);
+          const emp = await EmployeeModel.create(empData);
           console.log(`✓ Created employee: ${emp.firstName} ${emp.lastName} (${emp.email})`);
         } else {
           console.log(`- Employee already exists: ${empData.email}`);

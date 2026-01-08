@@ -1,0 +1,13 @@
+✅ DB Connected
+Found Template: 694ad151ecd156daccd5fae6
+Creating Test Applicant...
+Created Test Applicant: 694b85b54ccee64e46b4f1a0
+
+--- TEST CASE A: No Offer Letter ---
+✅ PASS: Blocked missing offer letter.
+
+--- TEST CASE B: Valid Offer Letter ---
+Updated Test Applicant with Fake Offer Path
+✅ PASS: Generated Joining Letter successfully.
+PDF Path: offers/Joining_Letter_694b85b54ccee64e46b4f1a0_1766557110501.docx
+Cleaned up Test Applicant

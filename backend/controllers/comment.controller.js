@@ -1,9 +1,27 @@
 const mongoose = require('mongoose');
 const { checkEntityAccess } = require('../utils/accessControl');
 
-const getModels = (req) => ({
-    Comment: req.tenantDB.model('Comment'),
-});
+const getModels = (req) => {
+  if (req.tenantDB) {
+    try {
+      return {
+        Comment: req.tenantDB.model('Comment'),
+      };
+    } catch (error) {
+      // Model not registered, register it
+      console.log(`[COMMENT_CONTROLLER] Registering Comment model in tenant DB`);
+      const CommentSchema = require('../models/Comment');
+      return {
+        Comment: req.tenantDB.model('Comment', CommentSchema),
+      };
+    }
+  } else {
+    // For super admin or testing, use main connection
+    return {
+      Comment: mongoose.model('Comment'),
+    };
+  }
+};
 
 // Fetch entity comments (with access validation)
 exports.getComments = async (req, res) => {

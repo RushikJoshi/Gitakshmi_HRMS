@@ -21,6 +21,7 @@ export default function EmployeeSidebar({ activeTab, setActiveTab, onClose }) {
         Leave: true,
         Payroll: true,
         Team: true,
+        Opportunities: true,
         Settings: true
     });
 
@@ -57,6 +58,13 @@ export default function EmployeeSidebar({ activeTab, setActiveTab, onClose }) {
             title: 'Payroll',
             items: [
                 { id: 'payslips', label: 'My Payslips', icon: ICONS.payslips }
+            ]
+        },
+        {
+            title: 'Opportunities',
+            items: [
+                { id: 'internal-jobs', label: 'Internal Jobs', icon: <User size={20} /> },
+                { id: 'my-applications', label: 'My Applications', icon: <FileText size={20} /> }
             ]
         },
         {

@@ -1,16 +1,26 @@
 const mongoose = require('mongoose');
 const notificationController = require('../controllers/notification.controller');
 
-const getModels = (req) => ({
-    LeaveRequest: req.tenantDB.model('LeaveRequest'),
-    LeaveBalance: req.tenantDB.model('LeaveBalance'),
-    Employee: req.tenantDB.model('Employee'),
-    LeavePolicy: req.tenantDB.model('LeavePolicy'),
-    Notification: req.tenantDB.model('Notification'),
-    Holiday: req.tenantDB.model('Holiday'),
-    Attendance: req.tenantDB.model('Attendance'),
-    AttendanceSettings: req.tenantDB.model('AttendanceSettings')
-});
+const getModels = (req) => {
+    if (!req.tenantDB) {
+        throw new Error('Tenant database not initialized. Please ensure tenant middleware is running.');
+    }
+    try {
+        return {
+            LeaveRequest: req.tenantDB.model('LeaveRequest'),
+            LeaveBalance: req.tenantDB.model('LeaveBalance'),
+            Employee: req.tenantDB.model('Employee'),
+            LeavePolicy: req.tenantDB.model('LeavePolicy'),
+            Notification: req.tenantDB.model('Notification'),
+            Holiday: req.tenantDB.model('Holiday'),
+            Attendance: req.tenantDB.model('Attendance'),
+            AttendanceSettings: req.tenantDB.model('AttendanceSettings')
+        };
+    } catch (err) {
+        console.error('Error in getModels (leaveRequest):', err);
+        throw new Error('Failed to get models from tenant database');
+    }
+};
 
 // Helper to calculate days (Sandwich Rule Active: Counts ALL days including weekends/holidays)
 const calculateNetDays = async (req, startDate, endDate) => {
@@ -420,6 +430,24 @@ exports.getTeamLeaves = async (req, res) => {
 
 exports.getAllLeaves = async (req, res) => {
     try {
+        // Validate tenant context
+        if (!req.user || !req.user.tenantId) {
+            console.error("getAllLeaves ERROR: Missing user or tenantId in request");
+            return res.status(401).json({ error: "unauthorized", message: "User context or tenant not found" });
+        }
+
+        const tenantId = req.user.tenantId || req.tenantId;
+        if (!tenantId) {
+            console.error("getAllLeaves ERROR: tenantId not available");
+            return res.status(400).json({ error: "tenant_missing", message: "Tenant ID is required" });
+        }
+
+        // Ensure tenantDB is available
+        if (!req.tenantDB) {
+            console.error("getAllLeaves ERROR: Tenant database connection not available");
+            return res.status(500).json({ error: "tenant_db_unavailable", message: "Tenant database connection not available" });
+        }
+
         const { LeaveRequest } = getModels(req);
 
         // Extract pagination params
@@ -427,9 +455,9 @@ exports.getAllLeaves = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        const total = await LeaveRequest.countDocuments({ tenant: req.tenantId });
+        const total = await LeaveRequest.countDocuments({ tenant: tenantId });
 
-        const leaves = await LeaveRequest.find({ tenant: req.tenantId })
+        const leaves = await LeaveRequest.find({ tenant: tenantId })
             .populate('employee', 'firstName lastName email profilePic')
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -445,7 +473,9 @@ exports.getAllLeaves = async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("getAllLeaves ERROR:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).json({ error: error.message || "Failed to fetch leave requests" });
     }
 };
 

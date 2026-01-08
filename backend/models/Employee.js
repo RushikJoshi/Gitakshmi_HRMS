@@ -21,6 +21,8 @@ const EmployeeSchema = new mongoose.Schema({
   bloodGroup: { type: String, trim: true },
   role: { type: String, trim: true },
   leavePolicy: { type: mongoose.Schema.Types.ObjectId, ref: 'LeavePolicy', default: null },
+  // Salary Template reference
+  salaryTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'SalaryTemplate', default: null, index: true },
   // Department reference (ObjectId for proper relationship)
   departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
   // logical department linkage (name or code) - kept for backward compatibility

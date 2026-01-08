@@ -1,0 +1,16 @@
+✅ DB Connected
+Creating Test Applicant...
+Created Test Applicant: 694b859e4680f3beb645961d
+
+--- TEST: Offer Letter Generation with Data Persistence ---
+✅ PASS: Offer letter generated successfully
+Applicant status: Selected
+Offer letter path: offers/test_offer.pdf
+Offer ref code: OFFER/2024/TEST123
+Joining date: Thu Feb 15 2024 05:30:00 GMT+0530 (India Standard Time)
+Address: 456 Test Avenue, Test City, Test State 12345
+✅ PASS: Joining date persisted correctly
+✅ PASS: Address persisted correctly
+✅ PASS: Offer ref code persisted correctly
+🧹 Cleaned up test applicant
+✅ DB Disconnected

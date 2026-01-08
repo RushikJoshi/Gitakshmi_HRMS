@@ -1,21 +1,26 @@
 const mongoose = require('mongoose');
-const EmployeeSchema = require('../models/Employee');
-const AttendanceSchema = require('../models/Attendance');
-const LeaveRequestSchema = require('../models/LeaveRequest');
 
 /* ----------------------------------------------------
-   HELPER → Load model from dynamic tenant database
+   HELPER → Get models from tenant database
+   Models are already registered by dbManager, just retrieve them
 ---------------------------------------------------- */
 function getModels(req) {
   if (!req.tenantDB) {
     throw new Error("Tenant database connection not available");
   }
   const db = req.tenantDB;
-  return {
-    Employee: db.model("Employee", EmployeeSchema),
-    Attendance: db.model("Attendance", AttendanceSchema),
-    LeaveRequest: db.model("LeaveRequest", LeaveRequestSchema)
-  };
+  try {
+    // Models are already registered by dbManager, just retrieve them
+    // Do NOT pass schema - use connection.model(name) only
+    return {
+      Employee: db.model("Employee"),
+      Attendance: db.model("Attendance"),
+      LeaveRequest: db.model("LeaveRequest")
+    };
+  } catch (err) {
+    console.error("[employee.controller] Error retrieving models:", err.message);
+    throw new Error(`Failed to retrieve models from tenant database: ${err.message}`);
+  }
 }
 
 /* ----------------------------------------------------

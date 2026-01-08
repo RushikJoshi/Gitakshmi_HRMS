@@ -94,9 +94,9 @@ export default function PsaLayout() {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 flex-shrink-0">
           <div className="flex items-center gap-4">
             <button
-              onClick={handleLogout}
+              onClick={() => navigate(-1)}
               className="p-2 rounded-md text-slate-600 hover:bg-slate-100 transition"
-              title="Back to Login"
+              title="Go Back"
             >
               <i className="fa-solid fa-arrow-left text-lg"></i>
             </button>
