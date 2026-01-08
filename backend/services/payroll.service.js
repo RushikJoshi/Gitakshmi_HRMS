@@ -48,9 +48,8 @@ async function runPayroll(db, tenantId, month, year, initiatedBy) {
     // Get all active employees with salary templates
     const employees = await Employee.find({
         tenant: tenantId,
-        status: 'Active',
-        salaryTemplateId: { $ne: null }
-    }).populate('salaryTemplateId');
+        status: 'Active'
+    });
 
     payrollRun.totalEmployees = employees.length;
     payrollRun.processedEmployees = 0;
@@ -138,16 +137,50 @@ async function calculateEmployeePayroll(
     endDate,
     daysInMonth,
     holidayDates,
-    payrollRunId
+    payrollRunId,
+    explicitTemplateId = null,
+    dryRun = false
 ) {
     const Payslip = db.model('Payslip');
     const Attendance = db.model('Attendance');
     const EmployeeDeduction = db.model('EmployeeDeduction');
     const DeductionMaster = db.model('DeductionMaster');
 
-    const salaryTemplate = employee.salaryTemplateId;
+    const SalaryAssignment = db.model('SalaryAssignment');
+    const SalaryTemplate = db.model('SalaryTemplate');
+
+    let salaryTemplate = null;
+
+    if (explicitTemplateId) {
+        salaryTemplate = await SalaryTemplate.findById(explicitTemplateId);
+    } else {
+        // 1. Check for valid assignment active for this month
+        // Find latest assignment effective before or on the month's end date
+        const assignment = await SalaryAssignment.findOne({
+            tenantId,
+            employeeId: employee._id,
+            effectiveFrom: { $lte: endDate }
+        }).sort({ effectiveFrom: -1 }).populate('salaryTemplateId');
+
+        if (assignment) {
+            // Check if the assignment had ended before the start of this payroll month
+            if (assignment.effectiveTo && new Date(assignment.effectiveTo) < startDate) {
+                salaryTemplate = null; // Expired assignment
+            } else {
+                salaryTemplate = assignment.salaryTemplateId;
+            }
+        }
+    }
+    /* 
+    // FALLBACK REMOVED: Strict requirement to use SalaryAssignment
+    else if (employee.salaryTemplateId) {
+        ...
+    } 
+    */
+
     if (!salaryTemplate) {
-        throw new Error(`Employee ${employee._id} has no salary template assigned`);
+        // Skip employee without template (not an error, just not payroll-ready)
+        throw new Error(`Employee ${employee._id} has no active salary template assigned for this period`);
     }
 
     // Get attendance for the month
@@ -214,10 +247,10 @@ async function calculateEmployeePayroll(
     }));
 
     // Create payslip snapshot
-    const payslip = new Payslip({
+    const payslipData = {
         tenantId,
         employeeId: employee._id,
-        payrollRunId,
+        payrollRunId: payrollRunId || new mongoose.Types.ObjectId(), // Mock ID for preview if null
         month,
         year,
         employeeInfo: {
@@ -248,9 +281,14 @@ async function calculateEmployeePayroll(
             monthlyCTC: salaryTemplate.monthlyCTC
         },
         generatedBy: payrollRunId // Can be updated with actual user ID
-    });
+    };
 
-    await payslip.save();
+    const payslip = new Payslip(payslipData);
+
+    if (!dryRun) {
+        await payslip.save();
+    }
+
     return payslip;
 }
 
@@ -265,7 +303,7 @@ function calculateAttendanceSummary(attendanceRecords, daysInMonth, holidayDates
 
     // Check if employee joined mid-month
     const actualStartDate = joiningDate && joiningDate > monthStartDate ? joiningDate : monthStartDate;
-    const actualDaysInMonth = actualStartDate > monthStartDate 
+    const actualDaysInMonth = actualStartDate > monthStartDate
         ? daysInMonth - (actualStartDate.getDate() - 1)
         : daysInMonth;
 
@@ -315,7 +353,7 @@ function calculateGrossEarnings(earnings, daysInMonth, presentDays, lopDays) {
         // Note: In practice, only certain components are pro-rated
         // For now, we'll apply pro-rata based on present days
         // TODO: Add flag to earnings template to indicate which components should be pro-rated
-        
+
         // Basic salary is typically pro-rated
         if (earning.name.toLowerCase().includes('basic')) {
             basicAmount = amount;
@@ -366,18 +404,18 @@ async function calculatePreTaxDeductions(db, tenantId, employeeId, grossEarnings
     }).populate('deductionId');
 
     // Filter pre-tax deductions
-    const preTaxDeductions = employeeDeductions.filter(ed => 
+    const preTaxDeductions = employeeDeductions.filter(ed =>
         ed.deductionId && ed.deductionId.category === 'PRE_TAX'
     );
 
     // Calculate EPF (Employee Contribution)
-    const epfDeduction = preTaxDeductions.find(d => 
-        d.deductionId.name.toLowerCase().includes('pf') || 
+    const epfDeduction = preTaxDeductions.find(d =>
+        d.deductionId.name.toLowerCase().includes('pf') ||
         d.deductionId.name.toLowerCase().includes('epf')
     );
-    
+
     if (epfDeduction || templateSettings?.includePensionScheme) {
-        const pfWage = templateSettings?.pfWageRestriction 
+        const pfWage = templateSettings?.pfWageRestriction
             ? Math.min(basicAmount, templateSettings.pfWageLimit || 15000)
             : basicAmount;
         const epfAmount = Math.round((pfWage * 0.12) * 100) / 100; // 12% of PF wage
@@ -448,10 +486,10 @@ function calculateTDS(taxableIncome, employee) {
     // Placeholder: Simple tax calculation
     // In production, this should use proper tax calculation service
     // For now, returning 0 or a basic calculation
-    
+
     // Annual taxable income projection
     const annualTaxableIncome = taxableIncome * 12;
-    
+
     // Basic tax calculation (Old Regime - simplified)
     let tax = 0;
     if (annualTaxableIncome > 500000) {
@@ -459,10 +497,10 @@ function calculateTDS(taxableIncome, employee) {
     } else if (annualTaxableIncome > 250000) {
         tax = (annualTaxableIncome - 250000) * 0.05;
     }
-    
+
     // Monthly TDS
     const monthlyTDS = Math.round((tax / 12) * 100) / 100;
-    
+
     return monthlyTDS;
 }
 
@@ -498,7 +536,7 @@ async function calculatePostTaxDeductions(
     }).populate('deductionId');
 
     // Filter post-tax deductions
-    const postTaxDeductions = employeeDeductions.filter(ed => 
+    const postTaxDeductions = employeeDeductions.filter(ed =>
         ed.deductionId && ed.deductionId.category === 'POST_TAX'
     );
 
@@ -516,7 +554,7 @@ async function calculatePostTaxDeductions(
     // Calculate other post-tax deductions
     for (const ed of postTaxDeductions) {
         const master = ed.deductionId;
-        
+
         // Skip LOP if already calculated above
         if (master.name.toLowerCase().includes('lop') || master.name.toLowerCase().includes('loss of pay')) {
             continue;

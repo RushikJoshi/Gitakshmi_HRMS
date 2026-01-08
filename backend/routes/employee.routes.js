@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.jwt');
 const empCtrl = require('../controllers/employee.controller');
+const employeeSalaryController = require('../controllers/employeeSalary.controller');
 const requestCtrl = require('../controllers/leaveRequest.controller');
 const attendCtrl = require('../controllers/attendance.controller'); // Import Attendance Controller
 
@@ -36,6 +37,10 @@ router.post('/regularization/requests/:id/reject', auth.authenticate, regCtrl.re
 // payslips (mock)
 router.get('/payslips', auth.authenticate, empCtrl.getPayslips);
 router.get('/reporting-tree', auth.authenticate, empCtrl.getReportingTree);
+
+// Salary Assignment (New Requirement)
+router.post('/:id/salary-assignment', auth.requireHr, employeeSalaryController.assignSalary);
+router.get('/:id/salary-assignment', auth.requireHr, employeeSalaryController.getSalaryAssignment);
 
 module.exports = router;
 // exported above

@@ -13,8 +13,9 @@ const NATIONALITIES = [
 ];
 
 import ApplyLeaveForm from '../../components/ApplyLeaveForm';
+import SalaryAssignmentModal from '../../components/Payroll/SalaryAssignmentModal';
 import EmployeeProfileView from '../../components/EmployeeProfileView';
-import { Calendar as CalendarIcon, User, Search, Filter, Plus, FileText, Edit2, Trash2, Eye } from 'lucide-react';
+import { Calendar as CalendarIcon, User, Search, Filter, Plus, FileText, Edit2, Trash2, Eye, DollarSign } from 'lucide-react';
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -22,7 +23,8 @@ export default function Employees() {
   const [openForm, setOpenForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
-  const [applyingLeave, setApplyingLeave] = useState(null); // New state for leave application modal
+  const [applyingLeave, setApplyingLeave] = useState(null);
+  const [assigningSalary, setAssigningSalary] = useState(null); // New state //
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showDrafts, setShowDrafts] = useState(false);
@@ -267,6 +269,9 @@ export default function Employees() {
                             <button onClick={() => setApplyingLeave(emp)} className="p-1.5 rounded hover:bg-emerald-50 transition" title="Apply Leave" aria-label="Apply leave for employee">
                               <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600" />
                             </button>
+                            <button onClick={() => setAssigningSalary(emp)} className="p-1.5 rounded hover:bg-purple-50 transition" title="Assign Salary Structure" aria-label="Assign Salary">
+                              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
+                            </button>
                             <button onClick={() => openEdit(emp)} className="p-1.5 rounded hover:bg-blue-50 transition" title="Edit" aria-label="Edit employee">
                               <Edit2 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
                             </button>
@@ -324,6 +329,18 @@ export default function Employees() {
           </div>
         )
       }
+
+      {/* Salary Assignment Modal */}
+      {assigningSalary && (
+        <SalaryAssignmentModal
+          employee={assigningSalary}
+          onClose={() => setAssigningSalary(null)}
+          onSuccess={() => {
+            alert("Salary structure assigned successfully!");
+            load();
+          }}
+        />
+      )}
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 sm:p-6">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-3">Employees by Department</h3>

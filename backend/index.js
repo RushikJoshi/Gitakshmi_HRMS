@@ -1,4 +1,4 @@
-// Load environment variables
+﻿// Load environment variables
 require('dotenv').config();
 
 // Core imports
@@ -131,7 +131,7 @@ app.use('/uploads', express.static(uploadsDir));
 const errorMiddleware = require('./middleware/error.middleware');
 
 app.use((err, req, res, next) => {
-  // console.error('🔥 EXPRESS ERROR:', err);
+  // console.error('ðŸ”¥ EXPRESS ERROR:', err);
   next(err);
 });
 app.use(errorMiddleware);
@@ -169,7 +169,7 @@ mongoose
     family: 4
   })
   .then(async () => {
-    console.log('✅ MongoDB connected');
+    console.log('âœ… MongoDB connected');
 
     // Register models for main DB (for super admin fallback)
     mongoose.model('Notification', require('./models/Notification'));
@@ -183,7 +183,7 @@ mongoose
     mongoose.model('CandidateStatusLog', require('./models/CandidateStatusLog'));
 
     app.listen(PORT, async () => {
-      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`âœ… Server running on port ${PORT}`);
 
       const useNgrok =
         String(process.env.USE_NGROK || '').toLowerCase() === 'true' &&
@@ -196,16 +196,16 @@ mongoose
           }
           const url = await ngrok.connect({ addr: PORT });
           process.env.NGROK_URL = url;
-          console.log('🌐 NGROK URL:', url);
+          console.log('ðŸŒ NGROK URL:', url);
         } catch (e) {
           console.warn('ngrok failed:', e.message);
         }
       }
 
-      console.log('✅ Server fully initialized');
+      console.log('âœ… Server fully initialized');
     });
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection failed:', err);
+    console.error('âŒ MongoDB connection failed:', err);
     process.exit(1);
   });

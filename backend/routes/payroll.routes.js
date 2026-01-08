@@ -7,6 +7,8 @@ const payrollRunController = require('../controllers/payrollRun.controller');
 const payslipController = require('../controllers/payslip.controller');
 const auth = require('../middleware/auth.jwt');
 const tenantMiddleware = require('../middleware/tenant.middleware');
+const salaryAssignmentController = require('../controllers/salaryAssignment.controller');
+const payrollProcessController = require('../controllers/payrollProcess.controller');
 
 // Apply auth and tenant middleware to all payroll routes
 router.use(auth.authenticate);
@@ -34,6 +36,10 @@ router.get('/benefits/:id', benefitController.getBenefitById);
 router.put('/benefits/:id', benefitController.updateBenefit);
 router.delete('/benefits/:id', benefitController.deleteBenefit);
 router.patch('/benefits/:id/status', benefitController.toggleStatus);
+
+// Salary Assignment Routes
+router.post('/assign-template', auth.requireHr, salaryAssignmentController.assignTemplate);
+router.get('/history/:employeeId', auth.requireHr, salaryAssignmentController.getAssignmentHistory);
 
 // Salary Template Routes (HR Only)
 router.use('/salary-templates', auth.requireHr);
@@ -67,5 +73,10 @@ router.get('/payslips/my/:id/download', payslipController.downloadPayslipPDF);
 router.get('/payslips', auth.requireHr, payslipController.getPayslips);
 // Note: /payslips/:id and /payslips/:id/download are handled by employee routes above
 // HR can access using same endpoints
+
+// Setup for payroll process
+router.get('/process/employees', auth.requireHr, payrollProcessController.getProcessEmployees);
+router.post('/process/preview', auth.requireHr, payrollProcessController.previewPreview);
+router.post('/process/run', auth.requireHr, payrollProcessController.runPayroll);
 
 module.exports = router;

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import api from '../../utils/api';
 import { message, DatePicker } from 'antd';
+import { DollarSign } from 'lucide-react';
 import dayjs from 'dayjs';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils';
 
@@ -58,6 +59,56 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
   const [showPassword, setShowPassword] = useState(false);
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const [ifscLoading, setIfscLoading] = useState(false);
+
+  // Payroll / Compensation State (Step 8)
+  const [salaryTemplateId, setSalaryTemplateId] = useState(employee?.salaryTemplateId?._id || employee?.salaryTemplateId || '');
+  const [salaryEffectiveDate, setSalaryEffectiveDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [salaryStatus, setSalaryStatus] = useState('Active');
+  const [salaryTemplates, setSalaryTemplates] = useState([]);
+  const [selectedTemplateDetails, setSelectedTemplateDetails] = useState(null);
+
+  const loadSalaryTemplates = useCallback(async () => {
+    try {
+      const res = await api.get('/payroll/salary-templates');
+      setSalaryTemplates(res.data?.data || []);
+      // Pre-select if existing
+      if (salaryTemplateId && !selectedTemplateDetails) {
+        const found = (res.data?.data || []).find(t => t._id === salaryTemplateId);
+        if (found) setSelectedTemplateDetails(found);
+      }
+    } catch (err) { console.error("Failed to load salary templates", err); }
+  }, [salaryTemplateId]);
+
+  useEffect(() => {
+    if (step === 8) loadSalaryTemplates();
+  }, [step, loadSalaryTemplates]);
+
+  const handleTemplateChange = (e) => {
+    const tid = e.target.value;
+    setSalaryTemplateId(tid);
+    const found = salaryTemplates.find(t => t._id === tid);
+    setSelectedTemplateDetails(found || null);
+  };
+
+  const saveSalaryAssignment = async () => {
+    if (!salaryTemplateId) { alert("Please select a Salary Template"); return; }
+    if (!employee?._id) { alert("Please save employee draft first"); return; }
+
+    setSaving(true);
+    try {
+      await api.post(`/hr/employees/${employee._id}/salary-assignment`, {
+        salaryTemplateId,
+        effectiveFrom: salaryEffectiveDate,
+        status: salaryStatus
+      });
+      message.success("Salary assigned successfully!");
+    } catch (err) {
+      console.error(err);
+      message.error(err.response?.data?.message || "Failed to assign salary");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Leave Policy
   const [leavePolicy, setLeavePolicy] = useState(employee?.leavePolicy || '');
@@ -504,9 +555,17 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
       if (!email || !/\S+@\S+\.\S+/.test(email)) e.email = 'Valid Email is required';
 
       // Password is now mandatory for both New/Draft AND Edit modes
-      if (!password || password.length < 6) {
-        e.password = 'Password is required (min 6 chars)';
+      if (!password && !employee?._id) { // Only mandatory if new? Actually old code said "password || employee ? .. : valid"
+        // Re-reading logic: new employee needs password. Edit doesn't unless changing.
+        if (password && password.length < 6) e.password = 'Password min 6 chars';
+        if (!employee && !password) e.password = 'Password is required';
       }
+    }
+
+    if (stepNum === 8) {
+      if (!salaryTemplateId) e.salaryTemplate = "Salary Template is required";
+      if (!salaryEffectiveDate) e.effectiveDate = "Effective Date is required";
+      if (joiningDate && salaryEffectiveDate < joiningDate) e.effectiveDate = "Cannot be before Joining Date";
     }
 
     setErrors(e);
@@ -828,7 +887,7 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
     } finally { setSaving(false); }
   }
 
-  const stepTitles = ['General Details', 'Address', 'Experience', 'Bank & Job', 'Education Details', 'Identity Documents', 'Account Credentials'];
+  const stepTitles = ['General Details', 'Address', 'Experience', 'Bank & Job', 'Education Details', 'Identity Documents', 'Account Credentials', 'Payroll / Compensation'];
 
   return (
     <div>
@@ -1859,6 +1918,128 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
             </div>
           </div>
         )}
+        {/* Step 8: Payroll / Compensation */}
+        {step === 8 && (
+          <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 shadow-sm space-y-6">
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-600" />
+                Payroll / Compensation
+              </h3>
+              <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-semibold">
+                {salaryStatus}
+              </span>
+            </div>
+
+            {/* Form Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Salary Template <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white ${errors.salaryTemplate ? 'border-red-500' : 'border-slate-300'}`}
+                  value={salaryTemplateId}
+                  onChange={handleTemplateChange}
+                >
+                  <option value="">-- Select Template --</option>
+                  {salaryTemplates.map(t => (
+                    <option key={t._id} value={t._id}>{t.name} (CTC: {t.annualCTC})</option>
+                  ))}
+                </select>
+                {errors.salaryTemplate && <p className="text-red-600 text-xs mt-1">{errors.salaryTemplate}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Effective From <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white ${errors.effectiveDate ? 'border-red-500' : 'border-slate-300'}`}
+                  value={salaryEffectiveDate}
+                  onChange={e => setSalaryEffectiveDate(e.target.value)}
+                />
+                {errors.effectiveDate && <p className="text-red-600 text-xs mt-1">{errors.effectiveDate}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Pay Frequency</label>
+                <input type="text" value="Monthly" disabled className="w-full p-2.5 border border-slate-200 bg-slate-100 text-slate-500 rounded-lg cursor-not-allowed" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Status</label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="salaryStatus" value="Active" checked={salaryStatus === 'Active'} onChange={e => setSalaryStatus(e.target.value)} />
+                    <span className="text-sm">Active</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="salaryStatus" value="Inactive" checked={salaryStatus === 'Inactive'} onChange={e => setSalaryStatus(e.target.value)} />
+                    <span className="text-sm">Inactive</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Preview Section */}
+            {selectedTemplateDetails && (
+              <div className="bg-white p-4 rounded border border-slate-200 mt-4">
+                <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3 border-b pb-2">Compensation Preview</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="bg-slate-50 p-2 rounded">
+                    <div className="text-xs text-slate-500">Annual CTC</div>
+                    <div className="font-bold text-slate-800">₹{selectedTemplateDetails.annualCTC?.toLocaleString()}</div>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded">
+                    <div className="text-xs text-slate-500">Monthly Gross</div>
+                    <div className="font-bold text-slate-800">₹{selectedTemplateDetails.monthlyGross?.toLocaleString()}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h5 className="text-xs font-bold text-green-700 mb-2">Earnings</h5>
+                    <ul className="text-xs space-y-1">
+                      {selectedTemplateDetails.earnings.map((e, i) => (
+                        <li key={i} className="flex justify-between">
+                          <span>{e.salaryComponentId?.name || 'Component'}</span>
+                          <span className="font-mono">₹{e.monthlyAmount?.toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-red-700 mb-2">Deductions</h5>
+                    <ul className="text-xs space-y-1">
+                      {selectedTemplateDetails.deductions.map((d, i) => (
+                        <li key={i} className="flex justify-between">
+                          <span>{d.salaryComponentId?.name || 'Component'}</span>
+                          <span className="font-mono">₹{d.monthlyAmount?.toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4">
+              {!viewOnly && (
+                <button
+                  type="button"
+                  onClick={saveSalaryAssignment}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 flex items-center gap-2 text-sm font-medium"
+                  disabled={saving}
+                >
+                  {saving ? 'Saving...' : 'Save Assignment'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Navigation Buttons */}
         <div className="flex justify-between gap-2 mt-6 pt-4 border-t border-slate-200">
@@ -1866,7 +2047,7 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
 
           <div className="flex gap-3">
 
-            {(!viewOnly || step === 7) && (
+            {(!viewOnly) && (
               <button
                 type="button"
                 onClick={(e) => saveDraft(e)}
@@ -1877,7 +2058,7 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
               </button>
             )}
 
-            {step < 7 ? (
+            {step < 8 ? (
               <button
                 type="button"
                 onClick={(e) => { e.preventDefault(); handleNext(); }}
@@ -1887,13 +2068,13 @@ export default function EmployeeForm({ employee, onClose, viewOnly = false }) {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </button>
             ) : (
-              (!viewOnly || step === 7) ? (
+              (!viewOnly) ? (
                 <button
                   onClick={(e) => submit(e)}
                   disabled={saving}
                   className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium shadow-md hover:shadow-lg transition flex items-center gap-2"
                 >
-                  {saving ? 'Saving...' : 'Submit Employee'}
+                  {saving ? 'Saving...' : 'Finish & Close'}
                   {!saving && <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
                 </button>
               ) : (

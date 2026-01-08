@@ -54,6 +54,10 @@ import NewBenefit from '../pages/HR/Payroll/NewBenefit';
 import NewSalaryTemplate from '../pages/HR/Payroll/NewSalaryTemplate';
 import NewDeduction from '../pages/HR/Payroll/Deductions/NewDeduction';
 import PayrollRules from '../pages/Admin/PayrollRules';
+import RunPayroll from '../pages/HR/Payroll/RunPayroll';
+import Payslips from '../pages/HR/Payroll/Payslips';
+import ProcessPayroll from '../pages/HR/Payroll/ProcessPayroll';
+import PayrollDashboard from '../pages/HR/Payroll/PayrollDashboard';
 
 // Employee
 import EmployeeDashboard from '../pages/Employee/EmployeeDashboard';
@@ -139,6 +143,7 @@ export default function AppRoutes() {
         <Route path="salary-structure/:candidateId" element={<SalaryStructure />} />
 
         {/* Payroll */}
+        <Route path="payroll/dashboard" element={<PayrollDashboard />} />
         <Route path="payroll/salary-components" element={<SalaryComponents />} />
         <Route path="payroll/earnings/new" element={<NewEarning />} />
         <Route path="payroll/earnings/edit/:id" element={<NewEarning />} />
@@ -147,7 +152,11 @@ export default function AppRoutes() {
         <Route path="payroll/benefits/new" element={<NewBenefit />} />
         <Route path="payroll/benefits/edit/:id" element={<NewBenefit />} />
         <Route path="payroll/salary-templates/new" element={<NewSalaryTemplate />} />
+        <Route path="payroll/salary-templates/new" element={<NewSalaryTemplate />} />
         <Route path="payroll/rules" element={<PayrollRules />} />
+        <Route path="payroll/process" element={<ProcessPayroll />} />
+        <Route path="payroll/run" element={<RunPayroll />} />
+        <Route path="payroll/payslips" element={<Payslips />} />
 
         {/* Global */}
         <Route path="details/:entityType/:entityId" element={<EntityDetail />} />
