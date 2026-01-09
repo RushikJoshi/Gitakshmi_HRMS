@@ -31,6 +31,7 @@ export default function SalaryStructure() {
     const [saving, setSaving] = useState(false);
     const [candidate, setCandidate] = useState(null);
     const [templates, setTemplates] = useState([]);
+    const [error, setError] = useState(null);
 
     // Input State
     const [ctcInput, setCtcInput] = useState("");
@@ -46,26 +47,55 @@ export default function SalaryStructure() {
     const fetchData = async () => {
         try {
             setLoading(true);
-            const [candRes, tempRes] = await Promise.all([
-                api.get(`/hr/employees/${candidateId}`).catch(() => api.get(`/candidate/${candidateId}`)),
-                api.get('/payroll/salary-templates')
-            ]);
 
-            setCandidate(candRes.data.data);
+            // Fetch templates first - this is essential regardless of candidate load
+            const tempRes = await api.get('/payroll/salary-templates');
             setTemplates(tempRes.data.data || []);
 
-            // Set initial CTC if candidate already has one
-            if (candRes.data.data.ctc) {
-                setCtcInput(candRes.data.data.ctc.toString());
+            // Now try fetching candidate/applicant data from multiple endpoints
+            let candData = null;
+            try {
+                // 1. Try Applicants route (most likely if coming from Applicants list)
+                const res = await api.get(`/requirements/applicants/${candidateId}`);
+                candData = res.data.data || res.data;
+            } catch (e1) {
+                try {
+                    // 2. Try Employees route
+                    const res = await api.get(`/hr/employees/${candidateId}`);
+                    candData = res.data.data || res.data;
+                } catch (e2) {
+                    try {
+                        // 3. Try Candidate/Public route (fallback)
+                        const res = await api.get(`/candidate/${candidateId}`);
+                        candData = res.data.data || res.data;
+                    } catch (e3) {
+                        console.error("All candidate fetch attempts failed", { e1, e2, e3 });
+                    }
+                }
             }
 
-            // If candidate has a template assigned, select it
-            if (candRes.data.data.salaryTemplateId) {
-                setSelectedTemplateId(candRes.data.data.salaryTemplateId);
+            if (candData) {
+                setCandidate(candData);
+                // Set initial CTC if candidate already has one
+                if (candData.ctc) {
+                    setCtcInput(candData.ctc.toString());
+                } else if (candData.salarySnapshot?.annualCTC) {
+                    setCtcInput(candData.salarySnapshot.annualCTC.toString());
+                }
+
+                // If candidate has a template assigned, select it
+                if (candData.salaryTemplateId) {
+                    const templateId = candData.salaryTemplateId._id || candData.salaryTemplateId;
+                    setSelectedTemplateId(templateId.toString());
+                }
+            } else {
+                setError("Could not find applicant or employee with the provided ID. Please check if the candidate exists.");
+                console.warn("Could not find applicant/employee for ID:", candidateId);
             }
 
         } catch (err) {
             console.error("Fetch error:", err);
+            setError("Failed to connect to the server. Please try again later.");
         } finally {
             setLoading(false);
         }
@@ -130,18 +160,25 @@ export default function SalaryStructure() {
         return Math.round(amount || 0).toLocaleString('en-IN');
     };
 
-    if (loading && !candidate) return <div className="p-20 text-center">Loading...</div>;
+    if (loading && !candidate) return <div className="p-20 text-center font-bold text-gray-500">Loading Salary Configuration...</div>;
 
-    const totals = previewData ? {
-        grossMonthly: previewData.earnings.reduce((s, e) => s + e.amount, 0) / 12,
-        deductionsMonthly: previewData.deductions.reduce((s, d) => s + d.amount, 0) / 12,
-        employerBenefitsMonthly: previewData.benefits.reduce((s, b) => s + b.amount, 0) / 12,
-        ctcYearly: previewData.annualCTC
-    } : null;
+    if (error && !candidate) return (
+        <div className="p-20 text-center space-y-4">
+            <div className="inline-flex p-4 bg-red-50 rounded-full text-red-600 mb-4">
+                <AlertCircle size={40} />
+            </div>
+            <h2 className="text-2xl font-black text-gray-900">Error Loading Candidate</h2>
+            <p className="text-gray-500 max-w-md mx-auto">{error}</p>
+            <button
+                onClick={() => navigate('/hr/applicants')}
+                className="px-6 py-2 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition"
+            >
+                Back to Applicants
+            </button>
+        </div>
+    );
 
-    if (totals) {
-        totals.netMonthly = totals.grossMonthly - totals.deductionsMonthly;
-    }
+    const totals = previewData?.totals || null;
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6 bg-gray-50 min-h-screen">

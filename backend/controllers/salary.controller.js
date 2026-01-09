@@ -25,27 +25,11 @@ const SalaryController = {
                 return res.status(404).json({ success: false, message: "Template not found" });
             }
 
-            // We use a mock ID for preview
-            const mockEmployeeId = new mongoose.Types.ObjectId();
-
-            // We use the SalaryEngine but don't save to DB (we just return the resolved components)
-            // Actually, SalaryEngine.generateSnapshot saves to DB. 
-            // I should refactor SalaryEngine to have a 'resolve' method or just handle it here.
-
-            // Let's call it 'resolveOnly' if I had it, but for now I'll just use the engine logic partially.
-            // Better: Update SalaryEngine to have 'resolve' method.
-
-            const resolved = await SalaryEngine.generateSnapshot({
-                tenantDB,
-                employeeId: mockEmployeeId,
-                tenantId: req.tenantId,
+            // Calculation only - no DB write
+            const resolved = await SalaryEngine.calculate({
                 annualCTC: Number(ctcAnnual),
-                template,
-                effectiveDate: new Date()
+                template
             });
-
-            // Cleanup the preview snapshot if we don't want to keep it
-            await tenantDB.model('EmployeeSalarySnapshot').findByIdAndDelete(resolved._id);
 
             res.json({
                 success: true,
@@ -93,9 +77,8 @@ const SalaryController = {
                 const Employee = tenantDB.model('Employee');
                 await Employee.findByIdAndUpdate(employeeId, {
                     $set: {
-                        salaryTemplateId: templateId,
-                        // We could also store a ref to the latest snapshot
-                        'meta.latestSalarySnapshot': snapshot._id
+                        salaryTemplateId: templateId, // Legacy ref for UI
+                        salarySnapshotId: snapshot._id // New single source of truth
                     }
                 });
             }

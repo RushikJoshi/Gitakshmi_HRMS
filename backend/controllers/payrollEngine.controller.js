@@ -18,59 +18,18 @@ const PayrollEngineController = {
                 return res.status(400).json({ success: false, message: "Valid period (YYYY-MM) is required" });
             }
 
-            const Attendance = tenantDB.model('Attendance');
-            const AttendanceSnapshot = tenantDB.model('AttendanceSnapshot');
+            const AttendanceEngine = require('../services/attendanceEngine');
             const Employee = tenantDB.model('Employee');
 
             const employees = await Employee.find({ tenant: tenantId, status: 'Active' });
 
             const snapshots = [];
-            const [year, month] = period.split('-').map(Number);
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0);
-            const totalDays = endDate.getDate();
-
             for (const employee of employees) {
-                const records = await Attendance.find({
-                    tenant: tenantId,
-                    employee: employee._id,
-                    date: { $gte: startDate, $lte: endDate }
+                const snapshot = await AttendanceEngine.generateSnapshot({
+                    tenantDB,
+                    employeeId: employee._id,
+                    period
                 });
-
-                let presentDays = 0;
-                let absentDays = 0;
-                let leaveDays = 0;
-                let holidays = 0;
-                let weeklyOffs = 0;
-                let halfDays = 0;
-
-                records.forEach(r => {
-                    if (r.status === 'present') presentDays++;
-                    else if (r.status === 'absent') absentDays++;
-                    else if (r.status === 'leave') leaveDays++;
-                    else if (r.status === 'holiday') holidays++;
-                    else if (r.status === 'weekly_off') weeklyOffs++;
-                    else if (r.status === 'half_day') {
-                        presentDays += 0.5;
-                        halfDays++;
-                    }
-                });
-
-                const snapshot = await AttendanceSnapshot.findOneAndUpdate(
-                    { employee: employee._id, period },
-                    {
-                        tenant: tenantId,
-                        totalDays,
-                        presentDays,
-                        absentDays,
-                        leaveDays,
-                        holidays,
-                        weeklyOffs,
-                        halfDays,
-                        snapshotVersion: 1
-                    },
-                    { upsert: true, new: true, runValidators: true }
-                );
                 snapshots.push(snapshot);
             }
 

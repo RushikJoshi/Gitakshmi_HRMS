@@ -14,13 +14,12 @@ class SalaryEngine {
    * @param {Object} params.template - Salary Template document with components and formulas
    * @param {Date} params.effectiveDate - When this salary becomes effective
    */
-  static async generateSnapshot({ tenantDB, employeeId, applicantId, tenantId, annualCTC, template, effectiveDate }) {
-    if (!tenantDB) throw new Error('tenantDB is required');
-    if (!employeeId && !applicantId) throw new Error('employeeId or applicantId is required');
+  /**
+   * Resolves salary components without saving to database.
+   */
+  static async calculate({ annualCTC, template }) {
     if (!annualCTC || isNaN(annualCTC) || annualCTC <= 0) throw new Error('Positive annualCTC is required');
     if (!template) throw new Error('Salary template is required');
-
-    const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
 
     // Prepare formulas and metadata
     const formulas = {};
@@ -73,7 +72,8 @@ class SalaryEngine {
         const item = {
           name: meta.name,
           code: code,
-          amount: Math.round(amount * 100) / 100,
+          annualAmount: Math.round(amount * 100) / 100,
+          monthlyAmount: Math.round((amount / 12) * 100) / 100,
           formula: formulas[code],
           resolved: true
         };
@@ -87,8 +87,9 @@ class SalaryEngine {
     }
 
     // 5. Validation
-    const earningsSum = earnings.reduce((sum, e) => sum + e.amount, 0);
-    const benefitsSum = benefits.reduce((sum, b) => sum + b.amount, 0);
+    const earningsSum = earnings.reduce((sum, e) => sum + e.annualAmount, 0);
+    const benefitsSum = benefits.reduce((sum, b) => sum + b.annualAmount, 0);
+    const deductionsSum = deductions.reduce((sum, d) => sum + d.annualAmount, 0);
     const totalCost = Math.round((earningsSum + benefitsSum) * 100) / 100;
 
     // Strict validation requirement: Earnings + Benefits = CTC
@@ -96,15 +97,52 @@ class SalaryEngine {
       throw new Error(`Salary Integrity Error: Components total ₹${totalCost} but target CTC is ₹${annualCTC}. Difference too large.`);
     }
 
-    // 6. Persistence
+    const grossMonthly = Math.round((earningsSum / 12) * 100) / 100;
+    const deductionsMonthly = Math.round((deductionsSum / 12) * 100) / 100;
+    const netMonthly = Math.round((grossMonthly - deductionsMonthly) * 100) / 100;
+
+    return {
+      annualCTC,
+      monthlyCTC: Math.round((annualCTC / 12) * 100) / 100,
+      earnings,
+      deductions,
+      benefits,
+      totalCost,
+      totals: {
+        grossMonthly,
+        deductionsMonthly,
+        netMonthly,
+        benefitsMonthly: Math.round((benefitsSum / 12) * 100) / 100,
+        annualCTC,
+        annualEarnings: earningsSum,
+        annualDeductions: deductionsSum,
+        annualBenefits: benefitsSum
+      },
+      difference: Math.abs(totalCost - annualCTC)
+    };
+  }
+
+  /**
+   * Calculates and saves the snapshot
+   */
+  static async generateSnapshot(params) {
+    const { tenantDB, employeeId, applicantId, tenantId, annualCTC, template, effectiveDate } = params;
+    if (!tenantDB) throw new Error('tenantDB is required');
+    if (!employeeId && !applicantId) throw new Error('employeeId or applicantId is required');
+
+    const calculated = await this.calculate({ annualCTC, template });
+
+    const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
+
+    // Persistence
     const snapshot = await EmployeeSalarySnapshot.create({
       employee: employeeId || null,
       applicant: applicantId || null,
       tenant: tenantId,
       ctc: annualCTC,
-      earnings,
-      deductions,
-      benefits,
+      earnings: calculated.earnings,
+      deductions: calculated.deductions,
+      benefits: calculated.benefits,
       effectiveDate: effectiveDate || new Date()
     });
 

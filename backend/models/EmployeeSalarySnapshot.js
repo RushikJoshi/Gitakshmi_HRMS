@@ -12,21 +12,24 @@ const EmployeeSalarySnapshotSchema = new mongoose.Schema({
   earnings: [{
     name: String,
     code: String,
-    amount: Number,
+    annualAmount: Number,
+    monthlyAmount: Number,
     formula: String,
     resolved: Boolean
   }],
   deductions: [{
     name: String,
     code: String,
-    amount: Number,
+    annualAmount: Number,
+    monthlyAmount: Number,
     formula: String,
     resolved: Boolean
   }],
   benefits: [{
     name: String,
     code: String,
-    amount: Number,
+    annualAmount: Number,
+    monthlyAmount: Number,
     formula: String,
     resolved: Boolean
   }],

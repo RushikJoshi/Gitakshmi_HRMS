@@ -43,19 +43,19 @@ async function test() {
         });
 
         console.log('Salary Snapshot Resolved:');
-        console.log('Earnings:', salarySnapshot.earnings.map(e => `${e.code}: ${e.amount}`));
-        console.log('Benefits:', salarySnapshot.benefits.map(e => `${e.code}: ${e.amount}`));
+        console.log('Earnings:', salarySnapshot.earnings.map(e => `${e.code}: ${e.annualAmount} (Monthly: ${e.monthlyAmount})`));
+        console.log('Benefits:', salarySnapshot.benefits.map(e => `${e.code}: ${e.annualAmount}`));
 
-        const earningsSum = salarySnapshot.earnings.reduce((s, e) => s + e.amount, 0);
-        const benefitsSum = salarySnapshot.benefits.reduce((s, b) => s + b.amount, 0);
+        const earningsSum = salarySnapshot.earnings.reduce((s, e) => s + e.annualAmount, 0);
+        const benefitsSum = salarySnapshot.benefits.reduce((s, b) => s + b.annualAmount, 0);
         console.log('Total Resolved CTC:', earningsSum + benefitsSum);
 
         console.log('--- Testing Payroll Engine (Calculation Only) ---');
 
         const mockPayrollRunModel = {
-            create: async (data) => {
-                console.log('✅ Mock Payroll Run Model Created Data');
-                return { ...data, _id: 'mock_run_id' };
+            findOneAndUpdate: async (filter, data) => {
+                console.log('✅ Mock Payroll Run Model Upserted Data');
+                return { ...data, ...filter, _id: 'mock_run_id' };
             }
         };
         const mockTenantDB2 = {
@@ -63,12 +63,13 @@ async function test() {
         };
 
         const mockAttendanceSnapshot = {
+            _id: 'mock_att_id',
             totalDays: 31,
-            presentDays: 20,
+            presentDays: 26, // Including holidays/weekly offs for simplicity in this test
             absentDays: 5,
-            leaveDays: 2,
-            holidays: 2,
-            weeklyOffs: 2
+            leaveDays: 0,
+            holidays: 0,
+            weeklyOffs: 0
         };
 
         const payrollRun = await PayrollEngine.runPayroll({
@@ -83,13 +84,15 @@ async function test() {
         });
 
         const item = payrollRun.items[0];
-        console.log('Payroll Result for 26 days paid (20 present + 2 leave + 2 holiday + 2 weekly off):');
+        console.log('Payroll Result for 26 days paid out of 31:');
         console.log('Gross:', item.grossEarnings, 'Net:', item.netPay);
-        console.log('Proration Factor:', item.details.attendance.prorationFactor);
-        console.log('Monthly Basic:', item.details.earnings.find(e => e.code === 'BASIC').amount);
+        console.log('Attendance Summary:', item.details.attendance);
 
-        // Expected Basic: (600000 * 0.5 / 12) * (26 / 31) = 25000 * 0.8387 = 20967.74
-        console.log('Expected Basic Monthly: ~20967.74');
+        const basicEarning = item.details.earnings.find(e => e.code === 'BASIC');
+        console.log('Basic (Paid):', basicEarning.paidAmount, 'Basic (Full):', basicEarning.fullAmount);
+
+        // Expected Basic: (25000) * (26 / 31) = 20967.74
+        console.log('Expected Basic Paid: ~20967.74');
 
         process.exit(0);
     } catch (err) {

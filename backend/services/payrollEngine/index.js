@@ -1,97 +1,126 @@
-// Payroll Engine: Uses salary and attendance snapshots, produces payroll_run_snapshot
+/**
+ * Payroll Engine: Core engine for calculating monthly pay based on snapshots
+ */
 class PayrollEngine {
   /**
-   * Processes payroll for a set of employees based on their immutable snapshots.
-   * 
+   * Evaluates a single employee's pay for a period
    * @param {Object} params
-   * @param {Object} params.tenantDB - Tenant database connection
-   * @param {ObjectId} params.tenantId - Tenant ID
-   * @param {String} params.period - Period code (YYYY-MM)
-   * @param {Array} params.items - [{ employee, salarySnapshot, attendanceSnapshot }]
-   * @returns {Object} PayrollRunSnapshot document
+   * @param {Object} params.salarySnapshot - Immutable Salaries
+   * @param {Object} params.attendanceSnapshot - Immutable Attendance
    */
-  static async runPayroll({ tenantDB, tenantId, period, items }) {
-    if (!tenantDB) throw new Error('tenantDB is required');
-    if (!items || items.length === 0) throw new Error('No items to process');
+  static calculateEmployeePay({ salarySnapshot, attendanceSnapshot }) {
+    if (!salarySnapshot || !attendanceSnapshot) {
+      throw new Error('Salary and Attendance snapshots are required');
+    }
 
-    const PayrollRunSnapshotModel = tenantDB.model('PayrollRunSnapshot');
+    const { presentDays, totalDays } = attendanceSnapshot;
+    // Payout factor: percentage of month considered "payable"
+    // Usually (present + holidays + weeklyOffs) / totalDays
+    // For simplicity here: presentDays / totalDays (assuming presentDays includes paid leaves/holidays)
+    const payableFactor = presentDays / totalDays;
 
-    const runItems = items.map(item => {
-      const { salarySnapshot, attendanceSnapshot, employee } = item;
+    const items = {
+      earnings: [],
+      deductions: [],
+      benefits: []
+    };
 
-      const totalDays = attendanceSnapshot.totalDays || 30;
-      const paidDays = (attendanceSnapshot.presentDays || 0) +
-        (attendanceSnapshot.leaveDays || 0) +
-        (attendanceSnapshot.holidays || 0) +
-        (attendanceSnapshot.weeklyOffs || 0);
+    let totalEarnings = 0;
+    let totalDeductions = 0;
 
-      // Safety check: Paid days cannot exceed total days
-      const effectivePaidDays = Math.min(paidDays, totalDays);
-      const prorationFactor = effectivePaidDays / totalDays;
-
-      // RESOLVE MONTHLY VALUES FROM ANNUAL SNAPSHOT
-      const resolveMonthly = (annualAmount) => Math.round((annualAmount / 12) * prorationFactor * 100) / 100;
-
-      // Prorate earnings
-      const proratedEarnings = salarySnapshot.earnings.map(e => ({
+    // 1. Prorate Earnings
+    salarySnapshot.earnings.forEach(e => {
+      const monthlyFull = e.monthlyAmount;
+      const amount = Math.round(monthlyFull * payableFactor * 100) / 100;
+      items.earnings.push({
         name: e.name,
         code: e.code,
-        formula: e.formula,
-        baseAnnual: e.amount,
-        amount: resolveMonthly(e.amount)
-      }));
+        fullAmount: monthlyFull,
+        paidAmount: amount,
+        factor: payableFactor
+      });
+      totalEarnings += amount;
+    });
 
-      // Prorate benefits (Employer cost)
-      const proratedBenefits = (salarySnapshot.benefits || []).map(b => ({
-        name: b.name,
-        code: b.code,
-        formula: b.formula,
-        baseAnnual: b.amount,
-        amount: resolveMonthly(b.amount)
-      }));
-
-      // Prorate deductions (Employee)
-      const proratedDeductions = (salarySnapshot.deductions || []).map(d => ({
+    // 2. Resolve Deductions (usually calculated on Paid Basic, but here we use simple factor)
+    salarySnapshot.deductions.forEach(d => {
+      const monthlyFull = d.monthlyAmount;
+      const amount = Math.round(monthlyFull * payableFactor * 100) / 100;
+      items.deductions.push({
         name: d.name,
         code: d.code,
-        formula: d.formula,
-        baseAnnual: d.amount,
-        amount: resolveMonthly(d.amount)
-      }));
+        fullAmount: monthlyFull,
+        paidAmount: amount
+      });
+      totalDeductions += amount;
+    });
 
-      const grossEarnings = Math.round(proratedEarnings.reduce((sum, e) => sum + e.amount, 0) * 100) / 100;
-      const totalDeductions = Math.round(proratedDeductions.reduce((sum, d) => sum + d.amount, 0) * 100) / 100;
-      const netPay = Math.round((grossEarnings - totalDeductions) * 100) / 100;
+    // 3. Benefits (Employer cost)
+    salarySnapshot.benefits.forEach(b => {
+      const monthlyFull = b.monthlyAmount;
+      const amount = Math.round(monthlyFull * payableFactor * 100) / 100;
+      items.benefits.push({
+        name: b.name,
+        code: b.code,
+        fullAmount: monthlyFull,
+        paidAmount: amount
+      });
+    });
+
+    const netPay = Math.round((totalEarnings - totalDeductions) * 100) / 100;
+
+    return {
+      grossEarnings: totalEarnings,
+      totalDeductions,
+      netPay,
+      breakdown: items
+    };
+  }
+
+  /**
+   * Processes a full payroll run for a tenant and period
+   */
+  static async runPayroll({ tenantDB, tenantId, period, items }) {
+    const PayrollRunSnapshot = tenantDB.model('PayrollRunSnapshot');
+
+    const processedItems = items.map(item => {
+      const result = this.calculateEmployeePay({
+        salarySnapshot: item.salarySnapshot,
+        attendanceSnapshot: item.attendanceSnapshot
+      });
 
       return {
-        employee: employee._id || employee,
-        salarySnapshot: salarySnapshot._id,
-        attendanceSnapshot: attendanceSnapshot._id,
-        grossEarnings,
-        totalDeductions,
-        netPay,
+        employee: item.employee._id,
+        salarySnapshot: item.salarySnapshot._id,
+        attendanceSnapshot: item.attendanceSnapshot._id,
+        grossEarnings: result.grossEarnings,
+        totalDeductions: result.totalDeductions,
+        netPay: result.netPay,
         details: {
-          earnings: proratedEarnings,
-          deductions: proratedDeductions,
-          benefits: proratedBenefits,
+          ...result.breakdown,
           attendance: {
-            totalDays,
-            paidDays: effectivePaidDays,
-            prorationFactor
+            presentDays: item.attendanceSnapshot.presentDays,
+            totalDays: item.attendanceSnapshot.totalDays,
+            absentDays: item.attendanceSnapshot.absentDays,
+            leaveDays: item.attendanceSnapshot.leaveDays
           }
         }
       };
     });
 
-    const snapshot = await PayrollRunSnapshotModel.create({
-      tenant: tenantId,
-      period,
-      items: runItems,
-      locked: true,
-      version: 1
-    });
+    // Create locked snapshot
+    const runSnapshot = await PayrollRunSnapshot.findOneAndUpdate(
+      { tenant: tenantId, period },
+      {
+        items: processedItems,
+        locked: true,
+        version: 1, // Logic for incrementing version could be added
+        runDate: new Date()
+      },
+      { upsert: true, new: true }
+    );
 
-    return snapshot;
+    return runSnapshot;
   }
 }
 
