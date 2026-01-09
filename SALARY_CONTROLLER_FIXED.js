@@ -1,10 +1,17 @@
+/**
+ * SALARY STRUCTURE CONTROLLER
+ * Atlas Free Tier Safe - NO dynamic collections
+ * Uses SINGLE global SalaryStructure model
+ */
+
+const SalaryStructure = require('../models/SalaryStructure'); // GLOBAL model
 const { calculateSalaryBreakup, suggestSalaryBreakup } = require('../services/salaryBreakupCalculator');
 
-// Import GLOBAL SalaryStructure model (NOT tenant-specific)
-const SalaryStructure = require('../models/SalaryStructure');
-
-// Helper to get models from tenant database
-// SalaryStructure is EXCLUDED - it's global
+/**
+ * Helper to get models from tenant database
+ * ONLY for tenant-specific data (Applicant, Components)
+ * SalaryStructure is ALWAYS global
+ */
 function getModels(req) {
     if (!req.tenantDB) {
         throw new Error("Tenant database connection not available");
@@ -18,12 +25,20 @@ function getModels(req) {
     };
 }
 
+/**
+ * SUGGEST SALARY STRUCTURE
+ * GET /api/salary-structure/suggest
+ */
 exports.suggestSalaryStructure = async (req, res) => {
     try {
         const { enteredCTC } = req.body;
 
         if (!enteredCTC) {
-            return res.status(400).json({ message: "Annual CTC is required for suggestion." });
+            return res.status(400).json({
+                success: false,
+                message: "Annual CTC is required for suggestion.",
+                field: 'enteredCTC'
+            });
         }
 
         const models = getModels(req);
@@ -35,23 +50,11 @@ exports.suggestSalaryStructure = async (req, res) => {
             models.BenefitComponent.find({ isActive: true }).lean()
         ]);
 
-        console.log(`[SUGGEST_CONTROLLER] DB Fetch Results:`, {
-            earningsNames: earnings.map(e => e.name),
-            deductionsNames: deductions.map(d => d.name),
-            benefitsNames: benefits.map(b => b.name)
-        });
-
         const suggestion = suggestSalaryBreakup({
             enteredCTC: Number(enteredCTC),
             availableEarnings: earnings,
             availableDeductions: deductions,
             availableEmployerContributions: benefits
-        });
-
-        console.log(`[SUGGEST_CONTROLLER] Suggestion generated for CTC ${enteredCTC}:`, {
-            eCount: suggestion.earnings.length,
-            dCount: suggestion.deductions.length,
-            bCount: suggestion.employerContributions.length
         });
 
         res.json({
@@ -60,27 +63,65 @@ exports.suggestSalaryStructure = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Suggest Salary Structure Error:", error);
-        res.status(500).json({ message: error.message });
+        console.error("❌ Suggest Salary Structure Error:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate salary suggestion',
+            error: error.message
+        });
     }
 };
 
+/**
+ * CREATE/UPDATE SALARY STRUCTURE
+ * POST /api/salary-structure/create
+ * 
+ * CRITICAL: Uses GLOBAL SalaryStructure model
+ * NO dynamic collections created
+ */
 exports.createSalaryStructure = async (req, res) => {
     try {
         const { candidateId, calculationMode, enteredCTC, earnings, deductions, employerContributions } = req.body;
 
+        // ===== VALIDATION =====
         if (!candidateId) {
-            return res.status(400).json({ message: "Candidate ID is required" });
+            return res.status(400).json({
+                success: false,
+                message: 'Candidate ID is required',
+                field: 'candidateId'
+            });
         }
 
-        if (!enteredCTC || isNaN(Number(enteredCTC))) {
-            return res.status(400).json({ message: "Annual CTC (Source of Truth) is required." });
+        if (!enteredCTC || isNaN(Number(enteredCTC)) || Number(enteredCTC) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid Annual CTC is required and must be greater than 0',
+                field: 'enteredCTC',
+                received: enteredCTC
+            });
         }
 
-        // Use global SalaryStructure model
+        if (!req.tenantId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tenant ID is required',
+                field: 'tenantId'
+            });
+        }
+
         const { Applicant } = getModels(req);
 
-        // --- PERFORM AGGREGATION & VALIDATION ---
+        // ===== CHECK CANDIDATE EXISTS =====
+        const applicant = await Applicant.findById(candidateId);
+        if (!applicant) {
+            return res.status(404).json({
+                success: false,
+                message: 'Candidate not found',
+                candidateId
+            });
+        }
+
+        // ===== CALCULATE & VALIDATE =====
         const result = calculateSalaryBreakup({
             enteredCTC: Number(enteredCTC),
             earnings: Array.isArray(earnings) ? earnings : [],
@@ -88,27 +129,31 @@ exports.createSalaryStructure = async (req, res) => {
             employerContributions: Array.isArray(employerContributions) ? employerContributions : []
         });
 
-        // REJECT if mismatch only in AUTO mode
+        // ===== STRICT VALIDATION (AUTO MODE) =====
         if (calculationMode === 'AUTO' && !result.isValid) {
             return res.status(400).json({
-                error: "CTC_MISMATCH",
-                message: `Calculated CTC (₹${result.receivedCTC.toLocaleString()}) does not match Entered CTC (₹${result.expectedCTC.toLocaleString()}). Difference: ₹${result.mismatchAmount.toLocaleString()}`,
-                expectedCTC: result.expectedCTC,
-                receivedCTC: result.receivedCTC
+                success: false,
+                error: 'CTC_MISMATCH',
+                message: `CTC Calculation Mismatch Detected`,
+                details: {
+                    enteredCTC: result.expectedCTC,
+                    calculatedCTC: result.receivedCTC,
+                    difference: result.mismatchAmount,
+                    formula: 'CTC = Gross Earnings + Employer Contributions',
+                    breakdown: {
+                        grossEarnings: result.monthly.grossEarnings * 12,
+                        employerContributions: result.monthly.employerContributions * 12,
+                        total: (result.monthly.grossEarnings + result.monthly.employerContributions) * 12
+                    }
+                },
+                action: 'Please adjust salary components to match the entered CTC'
             });
         }
 
-        // Ensure we have a tenant ID
-        const tenantId = req.user.tenant || req.user.tenantId;
-        if (!tenantId) {
-            return res.status(400).json({ success: false, message: 'Tenant ID is missing from user context' });
-        }
-
-        // --- PERSIST TO SINGLE SOURCE OF TRUTH (SalaryStructure Collection) ---
-        // Using GLOBAL model with tenantId filtering
+        // ===== PERSIST DATA (GLOBAL MODEL) =====
         const structureData = {
+            tenantId: req.tenantId, // Multi-tenancy via data
             candidateId,
-            tenantId: tenantId, // Multi-tenancy via data
             calculationMode: calculationMode || 'AUTO',
             earnings: result.earnings.map(e => ({
                 key: e.componentId || e._id,
@@ -151,13 +196,14 @@ exports.createSalaryStructure = async (req, res) => {
             updatedBy: req.user?.name || 'System'
         };
 
+        // Use GLOBAL SalaryStructure model (NO tenant-specific collection)
         const updatedStructure = await SalaryStructure.findOneAndUpdate(
-            { tenantId: tenantId, candidateId }, // Query by tenant + candidate
+            { tenantId: req.tenantId, candidateId }, // Query by tenant + candidate
             { $set: structureData },
             { new: true, upsert: true }
         );
 
-        // Also update the Applicant's flat CTC and FULL SNAPSHOT
+        // ===== UPDATE APPLICANT SNAPSHOT =====
         const snapshot = {
             earnings: structureData.earnings.map(e => ({
                 name: e.label,
@@ -205,9 +251,10 @@ exports.createSalaryStructure = async (req, res) => {
             }
         });
 
+        // ===== SUCCESS RESPONSE =====
         res.json({
             success: true,
-            message: "Salary structure persisted to single source of truth.",
+            message: 'Salary structure saved successfully',
             data: updatedStructure,
             validation: {
                 isValid: result.isValid,
@@ -216,28 +263,46 @@ exports.createSalaryStructure = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Create Salary Structure Error:", error);
-        res.status(500).json({ message: error.message });
+        console.error('❌ Create Salary Structure Error:', error);
+
+        // Distinguish between validation errors and server errors
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: Object.keys(error.errors).map(key => ({
+                    field: key,
+                    message: error.errors[key].message
+                }))
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create salary structure',
+            error: error.message
+        });
     }
 };
 
+/**
+ * GET SALARY STRUCTURE
+ * GET /api/salary-structure/:candidateId
+ */
 exports.getSalaryStructure = async (req, res) => {
     try {
         const { candidateId } = req.params;
 
-        // Ensure tenantId
-        const tenantId = req.user.tenant || req.user.tenantId;
-        if (!tenantId) {
+        if (!req.tenantId) {
             return res.status(400).json({
                 success: false,
                 message: 'Tenant ID is required'
             });
         }
 
-        // Use global SalaryStructure model (imported at top)
-        // Query with tenant filter
+        // Query GLOBAL model with tenant filter
         const structure = await SalaryStructure.findOne({
-            tenantId: tenantId,
+            tenantId: req.tenantId,
             candidateId
         });
 
@@ -248,9 +313,60 @@ exports.getSalaryStructure = async (req, res) => {
             });
         }
 
-        res.json(structure);
+        res.json({
+            success: true,
+            data: structure
+        });
+
     } catch (error) {
         console.error('❌ Get Salary Structure Error:', error);
-        res.status(500).json({ message: error.message });
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch salary structure',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * DELETE SALARY STRUCTURE
+ * DELETE /api/salary-structure/:candidateId
+ */
+exports.deleteSalaryStructure = async (req, res) => {
+    try {
+        const { candidateId } = req.params;
+
+        if (!req.tenantId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tenant ID is required'
+            });
+        }
+
+        // Delete from GLOBAL model with tenant filter
+        const deleted = await SalaryStructure.findOneAndDelete({
+            tenantId: req.tenantId,
+            candidateId
+        });
+
+        if (!deleted) {
+            return res.status(404).json({
+                success: false,
+                message: "Salary structure not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Salary structure deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('❌ Delete Salary Structure Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete salary structure',
+            error: error.message
+        });
     }
 };
