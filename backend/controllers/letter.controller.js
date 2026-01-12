@@ -1212,6 +1212,8 @@ exports.generateJoiningLetter = async (req, res) => {
             status: 'generated',
             generatedBy: req.user?.userId
         });
+
+    
         await generated.save();
 
         // Update Applicant
@@ -1498,7 +1500,8 @@ exports.generateOfferLetter = async (req, res) => {
         if (location) updateData.location = location;
         if (fatherName) updateData.fatherName = fatherName; // Persist Father Name
 
-        await Applicant.findByIdAndUpdate(applicantId, updateData);
+        const { Applicant: ApplicantModel } = getModels(req);
+        await ApplicantModel.findByIdAndUpdate(applicantId, updateData);
 
         res.json({
             success: true,
@@ -2174,7 +2177,8 @@ exports.generateJoiningLetter = async (req, res) => {
         const outputPath = path.join(outputDir, fileName);
         await fsPromises.writeFile(outputPath, outputBuffer);
 
-        await Applicant.findByIdAndUpdate(applicantId, {
+        const { Applicant: ApplicantModel } = getModels(req);
+        await ApplicantModel.findByIdAndUpdate(applicantId, {
             joiningLetterPath: `/uploads/joining_letters/${fileName}`,
             joiningLetterGeneratedAt: new Date()
         });

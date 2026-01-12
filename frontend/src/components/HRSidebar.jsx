@@ -125,7 +125,8 @@ const NAV_GROUPS = [
       { to: '/hr/payroll/salary-components?tab=templates', label: 'Salary Templates', icon: ICONS.payroll },
       { to: '/hr/payroll/process', label: 'Process Payroll', icon: ICONS.play },
       { to: '/hr/payroll/run', label: 'Run History', icon: ICONS.calendar },
-      { to: '/hr/payroll/payslips', label: 'Payslips', icon: ICONS.document }
+      { to: '/hr/payroll/payslips', label: 'Payslips', icon: ICONS.document },
+      { to: '/hr/payroll/payslip-design', label: 'Payslip Design', icon: ICONS.document }
     ]
   },
   {
