@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 /**
  * Payroll Service
  * Core payroll calculation engine
