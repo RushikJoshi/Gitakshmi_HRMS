@@ -14,12 +14,16 @@ const ProcessPayroll = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [calculating, setCalculating] = useState(false);
     const [previews, setPreviews] = useState({}); // { empId: { gross, net, error } }
+<<<<<<< Updated upstream
     const [detailDrawer, setDetailDrawer] = useState({ visible: false, empId: null });
     const [detailData, setDetailData] = useState(null);
     const [payrollRunning, setPayrollRunning] = useState(false);
     const [payrollResult, setPayrollResult] = useState(null);
     const [showPayslipsModal, setShowPayslipsModal] = useState(false);
     const [allPreviews, setAllPreviews] = useState([]);
+=======
+    const [messageApi, contextHolder] = message.useMessage();
+>>>>>>> Stashed changes
 
     // Fetch Templates on Mount
     useEffect(() => {
@@ -48,7 +52,7 @@ const ProcessPayroll = () => {
                 selectedTemplateId: e.salaryTemplateId
             })));
         } catch (err) {
-            message.error(err.response?.data?.message || "Failed to fetch employees");
+            messageApi.error(err.response?.data?.message || "Failed to fetch employees");
         } finally {
             setLoading(false);
         }
@@ -73,7 +77,7 @@ const ProcessPayroll = () => {
             .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
 
         if (itemsToPreview.length === 0) {
-            message.warning("Select employees with templates assigned to preview");
+            messageApi.warning("Select employees with templates assigned to preview");
             return;
         }
 
@@ -91,10 +95,16 @@ const ProcessPayroll = () => {
                 newPreviews[p.employeeId] = p;
             });
             setPreviews(newPreviews);
+<<<<<<< Updated upstream
             message.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
         } catch (err) {
             console.error('Calculation Error:', err);
             message.error(err.response?.data?.message || "Calculation failed");
+=======
+            messageApi.success("Calculated successfully");
+        } catch (err) {
+            messageApi.error("Calculation failed");
+>>>>>>> Stashed changes
         } finally {
             setCalculating(false);
         }
@@ -111,6 +121,7 @@ const ProcessPayroll = () => {
                 month: month.format('YYYY-MM'),
                 items: [{ employeeId: emp._id, salaryTemplateId: emp.selectedTemplateId }]
             });
+<<<<<<< Updated upstream
 
             const p = res.data.data && res.data.data[0];
             setPreviews(prev => ({ ...prev, [emp._id]: p }));
@@ -118,6 +129,15 @@ const ProcessPayroll = () => {
             setDetailDrawer({ visible: true, empId: emp._id });
         } catch (err) {
             message.error('Failed to fetch preview');
+=======
+            messageApi.success("Payroll processed successfully!");
+            // Maybe redirect to dashboard or results?
+            fetchEmployees(); // Refresh status
+        } catch (err) {
+            messageApi.error(err.response?.data?.message || "Run failed");
+        } finally {
+            setLoading(false);
+>>>>>>> Stashed changes
         }
     };
 
@@ -189,6 +209,26 @@ const ProcessPayroll = () => {
             )
         },
         {
+<<<<<<< Updated upstream
+=======
+            title: 'Salary Template',
+            key: 'template',
+            render: (_, record) => (
+                <Select
+                    className="w-48"
+                    placeholder="Select Template"
+                    value={record.selectedTemplateId}
+                    onChange={(val) => handleTemplateChange(record._id, val)}
+                    status={!record.selectedTemplateId ? 'error' : ''}
+                    options={templates.map(t => ({
+                        value: t._id,
+                        label: `${t.templateName} (₹${t.annualCTC?.toLocaleString()})`
+                    }))}
+                />
+            )
+        },
+        {
+>>>>>>> Stashed changes
             title: 'Preview (Net Pay)',
             key: 'preview',
             width: 250,
@@ -246,13 +286,16 @@ const ProcessPayroll = () => {
         }
     ];
 
-    const rowSelection = {
+    const rowSelection = React.useMemo(() => ({
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
-    };
+    }), [selectedRowKeys]);
+
+    const memoColumns = React.useMemo(() => columns, [templates, previews]);
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
+            {contextHolder}
             <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -306,8 +349,9 @@ const ProcessPayroll = () => {
 
                 <Table
                     rowSelection={rowSelection}
-                    columns={columns}
+                    columns={memoColumns}
                     dataSource={employees}
+                    rowKey="_id"
                     loading={loading}
                     pagination={{ pageSize: 50 }}
                     size="middle"
