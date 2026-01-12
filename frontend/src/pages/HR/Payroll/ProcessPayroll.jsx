@@ -66,37 +66,64 @@ const ProcessPayroll = () => {
         });
     };
 
+    // const calculatePreview = async () => {
+    //     const itemsToPreview = employees
+    //         .filter(e => selectedRowKeys.includes(e._id))
+    //         .map(e => e.key) // Only those with templates
+    //         // .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
+
+    //         // console.log(itemsToPreview);
+
+    //     const findedEmployee = Employee.find(itemsToPreview);
+    //     console.log(findedEmployee);
+
+    //     if (itemsToPreview.length === 0) {
+    //         message.warning("Select employees with templates assigned to preview");
+    //         return;
+    //     }
+
+    //     setCalculating(true);
+    //     try {
+    //         const res = await api.post('/payroll/process/preview', {
+    //             month: month.format('YYYY-MM'),
+    //             items: itemsToPreview
+    //         });
+
+    //         const newPreviews = {};
+    //         res.data.data.forEach(p => {
+    //             newPreviews[p.employeeId] = p;
+    //         });
+    //         setPreviews(newPreviews);
+    //         message.success("Calculated successfully");
+    //     } catch (err) {
+    //         message.error("Calculation failed");
+    //     } finally {
+    //         setCalculating(false);
+    //     }
+    // };
+
+
     const calculatePreview = async () => {
-        const itemsToPreview = employees
-            .filter(e => selectedRowKeys.includes(e._id))
-            .filter(e => e.selectedTemplateId) // Only those with templates
-            .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
-
-        if (itemsToPreview.length === 0) {
-            message.warning("Select employees with templates assigned to preview");
-            return;
-        }
-
-        setCalculating(true);
+        
+        const selectedEmployees = employees
+        .filter( e => selectedRowKeys.includes(e._id));
+        
+        console.log(selectedEmployees);
+        
         try {
-            const res = await api.post('/payroll/process/preview', {
-                month: month.format('YYYY-MM'),
-                items: itemsToPreview
+
+            const res = await axios.post('/payroll/process/calculateNetPreview', {
+                selectedEmployees
             });
 
-            const newPreviews = {};
-            res.data.data.forEach(p => {
-                newPreviews[p.employeeId] = p;
-            });
-            setPreviews(newPreviews);
-            message.success("Calculated successfully");
-        } catch (err) {
-            message.error("Calculation failed");
-        } finally {
-            setCalculating(false);
+            const calculatedPreview = res.data.data && res.data.data[0];
+            console.log(calculatedPreview);
         }
-    };
-
+        catch(Error){
+            message.error('Failed to Fetch the Calculted Preview');
+            console.log("Error at the preview calculating time");
+        }
+    }
     const fetchPreviewForEmployee = async (emp) => {
         if (!emp.selectedTemplateId) {
             message.warning('Select a template for this employee first');

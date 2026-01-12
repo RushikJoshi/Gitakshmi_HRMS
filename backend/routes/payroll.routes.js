@@ -9,6 +9,7 @@ const auth = require('../middleware/auth.jwt');
 const tenantMiddleware = require('../middleware/tenant.middleware');
 const salaryAssignmentController = require('../controllers/salaryAssignment.controller');
 const payrollProcessController = require('../controllers/payrollProcess.controller');
+const calculateNetPreviewController = require('../controllers/calculateNetPreview.controller');
 
 // Apply auth and tenant middleware to all payroll routes
 router.use(auth.authenticate);
@@ -77,6 +78,7 @@ router.get('/payslips', auth.requireHr, payslipController.getPayslips);
 // Setup for payroll process
 router.get('/process/employees', auth.requireHr, payrollProcessController.getProcessEmployees);
 router.post('/process/preview', auth.requireHr, payrollProcessController.previewPreview);
+router.post('/process/calculateNetPreview', auth.requireHr, calculateNetPreviewController.calculateNetPreview);
 router.post('/process/run', auth.requireHr, payrollProcessController.runPayroll);
 
 module.exports = router;
