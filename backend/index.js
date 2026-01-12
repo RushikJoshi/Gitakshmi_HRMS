@@ -30,8 +30,24 @@ process.on('unhandledRejection', (reason, promise) => {
 /* ===============================
    CORS
 ================================ */
-app.use(cors({
-  origin: "*",
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'https://hrms.gitakshmi.com'
+];
+
+app.use(cors());
+
+// Handle OPTIONS requests explicitly
+app.options('*', cors({
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Tenant-ID"],
   credentials: true
@@ -152,23 +168,55 @@ app.get('/api/health', (_req, res) => {
    DATABASE CONNECTION
 ================================ */
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/hrms';
 
-if (!MONGO_URI) {
-  console.error('MONGO_URI not set');
-  process.exit(1);
+if (!process.env.MONGO_URI) {
+  console.warn('MONGO_URI not set in environment — defaulting to mongodb://localhost:27017/hrms');
 }
 
-mongoose
-  .connect(MONGO_URI, {
-    maxPoolSize: 10,
-    minPoolSize: 5,
-    socketTimeoutMS: 45000,
-    connectTimeoutMS: 10000,
-    retryWrites: true,
-    family: 4
-  })
-  .then(async () => {
+const connectOptions = {
+  maxPoolSize: 10,
+  minPoolSize: 5,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  retryWrites: true,
+  family: 4
+};
+
+async function connectWithFallback(uri) {
+  try {
+    await mongoose.connect(uri, connectOptions);
+    return uri;
+  } catch (err) {
+    console.error('MongoDB initial connection failed:', err && err.message ? err.message : err);
+
+    // Helpful guidance for SRV/DNS failures (common with mongodb+srv URIs)
+    if (err && (err.syscall === 'querySrv' || err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED')) {
+      console.error('It looks like DNS SRV lookup failed for the provided MongoDB URI.');
+      console.error('If you are using a mongodb+srv URI (Atlas), ensure your environment can resolve DNS SRV records.');
+      console.error('Temporary workaround: set MONGO_FALLBACK_URI to a standard mongodb://host:port URI (or run a local MongoDB).');
+    }
+
+    // If SRV was used and DNS SRV resolution failed, try a fallback URI
+    if (String(uri).includes('+srv')) {
+      const fallback = process.env.MONGO_FALLBACK_URI || 'mongodb://localhost:27017/hrms';
+      console.warn(`Attempting fallback MongoDB URI: ${fallback}`);
+      try {
+        await mongoose.connect(fallback, connectOptions);
+        return fallback;
+      } catch (err2) {
+        console.error('Fallback MongoDB connection also failed:', err2 && err2.message ? err2.message : err2);
+        throw err2;
+      }
+    }
+
+    // No fallback possible, rethrow
+    throw err;
+  }
+}
+
+connectWithFallback(MONGO_URI)
+  .then(async (usedUri) => {
     console.log('âœ… MongoDB connected');
 
     // Register models for main DB (for super admin fallback)

@@ -51,7 +51,7 @@ exports.getProcessEmployees = async (req, res) => {
             const attendanceCount = await Attendance.countDocuments({
                 employee: emp._id,
                 date: { $gte: startDate, $lte: endDate },
-                status: { $in: ['Present', 'Half Day', 'Work from Home'] }
+                status: { $in: ['present', 'half_day', 'work_from_home'] }
             });
 
             return {
@@ -279,12 +279,30 @@ exports.runPayroll = async (req, res) => {
         payrollRun.totalNetPay = totalNet;
         await payrollRun.save();
 
-        // Respond with Summary (200 OK)
+        // Respond with Complete Summary
         res.json({
-            status: "SUCCESS",
-            processed: successCount,
-            skipped: skippedList,
-            runId: payrollRun._id
+            success: true,
+            data: {
+                payrollRunId: payrollRun._id,
+                month: payrollRun.month,
+                year: payrollRun.year,
+                status: payrollRun.status,
+                totalEmployees: items.length,
+                processedEmployees: successCount,
+                failedEmployees: failCount,
+                skippedEmployees: skippedList.length,
+                totalGross: totalGross,
+                totalDeductions: 0, // Can be calculated if needed
+                totalNetPay: totalNet,
+                skippedList: skippedList,
+                processedList: processedList,
+                errors: failCount > 0 ? 
+                    skippedList.map(s => ({
+                        employeeId: s.employeeId,
+                        message: s.reason
+                    })) : []
+            },
+            message: `Payroll processed: ${successCount} successful, ${failCount} failed, ${skippedList.length} skipped`
         });
 
     } catch (error) {

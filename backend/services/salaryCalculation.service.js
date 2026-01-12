@@ -137,7 +137,45 @@ function calculateCompleteSalaryBreakdown(salaryTemplate) {
     };
 }
 
+/**
+ * Legacy interface adapter: calculateSalaryStructure
+ * Bridges old controller interface to new calculateCompleteSalaryBreakdown
+ * @param {Number} annualCTC
+ * @param {Array} earningsInput
+ * @param {Object} settings
+ * @param {Array} deductionsInput
+ * @param {Array} benefitsInput
+ * @param {Object} tenantDB
+ * @param {String} tenantId
+ */
+async function calculateSalaryStructure(annualCTC, earningsInput, settings, deductionsInput, benefitsInput, tenantDB, tenantId) {
+    // Build a mock salary template object from inputs
+    const mockTemplate = {
+        _id: null,
+        annualCTC,
+        monthlyCTC: Math.round((annualCTC / 12) * 100) / 100,
+        earnings: earningsInput || [],
+        employerDeductions: benefitsInput || [],
+        employeeDeductions: deductionsInput || [],
+        settings: settings || {}
+    };
+
+    // Calculate using the new function
+    const result = calculateCompleteSalaryBreakdown(mockTemplate);
+
+    // Transform result to match legacy expected structure
+    return {
+        annualCTC,
+        monthlyCTC: result.ctc.monthly,
+        earnings: result.earnings || earningsInput || [],
+        employerContributions: result.employerContributions || benefitsInput || [],
+        employeeDeductions: result.employeeDeductions || deductionsInput || [],
+        ...result
+    };
+}
+
 module.exports = {
-    calculateCompleteSalaryBreakdown
+    calculateCompleteSalaryBreakdown,
+    calculateSalaryStructure
 };
 

@@ -142,7 +142,6 @@ exports.getPayslips = async (req, res) => {
 /**
  * Download payslip PDF
  * GET /api/payroll/payslips/:id/download
- * TODO: Implement PDF generation
  */
 exports.downloadPayslipPDF = async (req, res) => {
     try {
@@ -173,25 +172,23 @@ exports.downloadPayslipPDF = async (req, res) => {
             return res.status(404).json({ success: false, error: "Payslip not found" });
         }
 
-        // TODO: Generate PDF if not exists, or return existing PDF
-        if (payslip.pdfPath) {
-            const path = require('path');
-            const fs = require('fs');
-            const filePath = path.join(__dirname, '..', payslip.pdfPath);
-            
-            if (fs.existsSync(filePath)) {
-                res.setHeader('Content-Type', 'application/pdf');
-                res.setHeader('Content-Disposition', `attachment; filename="payslip-${payslip.month}-${payslip.year}-${payslip.employeeInfo.employeeId}.pdf"`);
-                return res.sendFile(filePath);
-            }
-        }
+        try {
+            // Generate PDF on-the-fly
+            const payslipPDFService = require('../services/payslipPDF.service');
+            const pdfBuffer = await payslipPDFService.generatePayslipPDF(payslip.toObject());
 
-        // PDF not generated yet
-        return res.status(404).json({
-            success: false,
-            error: "PDF not available",
-            message: "Payslip PDF has not been generated yet"
-        });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="Payslip_${payslip.month}-${payslip.year}_${payslip.employeeInfo?.employeeId || 'Unknown'}.pdf"`);
+            res.send(pdfBuffer);
+
+        } catch (pdfError) {
+            console.error('[downloadPayslipPDF] PDF Generation Error:', pdfError);
+            res.status(500).json({
+                success: false,
+                error: "PDF generation failed",
+                message: pdfError.message
+            });
+        }
 
     } catch (error) {
         console.error('[downloadPayslipPDF] Error:', error);

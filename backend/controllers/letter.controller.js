@@ -1045,7 +1045,7 @@ exports.generateJoiningLetter = async (req, res) => {
 
         if (!struct) {
             console.error(`[JOINING LETTER] SalaryStructure not found for candidate: ${applicantId}.`);
-            return res.status(400).json({ message: "Salary structure not configured. Please complete Salary Configuration first." });
+            return res.status(400).json({ message: "Salary structure not configured. Please complete ion first." });
         }
 
         const processed = processCandidateSalary(struct);

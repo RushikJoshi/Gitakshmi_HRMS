@@ -402,13 +402,21 @@ function RequirementForm({ onClose, onSuccess, initialData, isEdit }) {
                                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
                                 <span className="self-center text-slate-400">-</span>
-                                <input
+                                {/* <input
                                     type="number"
                                     placeholder="Max"
+                                    inputmode="numeric" 
+                                    pattern="[0-9]*"
                                     value={formData.maxExperienceMonths}
                                     onChange={e => setFormData({ ...formData, maxExperienceMonths: e.target.value })}
                                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                />
+                                /> */}
+                                <input type="text" inputmode="numeric" pattern="[0-9]*"
+                                    value={formData.maxExperienceMonths}
+                                    onChange={e => setFormData({ ...formData, maxExperienceMonths: e.target.value })}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                ></input>
+
                             </div>
                         </div>
 
