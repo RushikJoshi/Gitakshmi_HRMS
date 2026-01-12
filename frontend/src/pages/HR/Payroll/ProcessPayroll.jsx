@@ -108,8 +108,6 @@ const ProcessPayroll = () => {
         } finally {
             setCalculating(false);
         }
-    };
-
     const fetchPreviewForEmployee = async (emp) => {
         if (!emp.selectedTemplateId) {
             message.warning('Select a template for this employee first');
@@ -594,5 +592,6 @@ const ProcessPayroll = () => {
         </div>
     );
 };
+}
 
 export default ProcessPayroll;
