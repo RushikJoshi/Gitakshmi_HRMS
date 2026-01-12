@@ -1,180 +1,109 @@
-// Simplified Salary Aggregator (Strict Addition)
-// NO AUTO-MAGIC - NO BALANCING - NO HIDDEN CALCULATIONS
-
-const round2 = (v) => Math.round(Number(v) || 0);
-
 /**
- * Validates and aggregates salary components
- * 
- * @param {Object} params
- * @param {Number} params.enteredCTC - Target annual CTC (Source of Truth)
- * @param {Array} params.earnings - Array of { name, amount, isSelected }
- * @param {Array} params.deductions - Array of { name, amount, isSelected }
- * @param {Array} params.employerContributions - Array of { name, amount, isSelected }
- * 
- * @returns {Object} Calculated totals and validation status
+ * Salary Breakup Calculator Service
+ * Used for validation and suggestion of salary structures
  */
-function calculateSalaryBreakup({ enteredCTC, earnings = [], deductions = [], employerContributions = [] }) {
-    // 1. Filter only selected components
-    const activeEarnings = earnings.filter(e => e.isSelected);
-    const activeDeductions = deductions.filter(d => d.isSelected);
-    const activeBenefits = employerContributions.filter(b => b.isSelected);
 
-    // 2. Sum Gross Earnings (Monthly)
-    const grossEarningsMonthly = round2(activeEarnings.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+// Calculate and validate salary breakup against CTC
+exports.calculateSalaryBreakup = ({ enteredCTC, earnings, deductions, employerContributions }) => {
+    // Helper to get annual amount
+    const getAnnual = (item) => {
+        const val = Number(item.amount) || Number(item.monthly) || 0;
+        return val * 12;
+    };
 
-    // 3. Sum Employee Deductions (Monthly)
-    const totalDeductionsMonthly = round2(activeDeductions.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+    const totalEarnings = (earnings || []).reduce((sum, e) => sum + getAnnual(e), 0);
+    const totalBenefits = (employerContributions || []).reduce((sum, b) => sum + getAnnual(b), 0);
+    const totalDeductions = (deductions || []).reduce((sum, d) => sum + getAnnual(d), 0);
 
-    // 4. Sum Employer Contributions (Monthly)
-    const totalEmployerContributionsMonthly = round2(activeBenefits.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+    const calculatedCTC = totalEarnings + totalBenefits;
+    const mismatch = Math.abs(calculatedCTC - enteredCTC);
+    const isValid = mismatch < 50; // Allow small rounding differences
 
-    // 5. Calculate Actual CTC
-    // Annual CTC = (Gross Monthly + Employer Monthly) * 12
-    const calculatedAnnualCTC = round2((grossEarningsMonthly + totalEmployerContributionsMonthly) * 12);
-
-    // 6. Calculate Net Salary (Take Home)
-    const netSalaryMonthly = round2(grossEarningsMonthly - totalDeductionsMonthly);
-
-    // 7. Check for Mismatch (Allowed drift up to ₹12/year for integer rounding)
-    const isMismatch = Math.abs(calculatedAnnualCTC - Number(enteredCTC)) > 12;
+    const monthlyGross = Math.round(totalEarnings / 12);
+    const monthlyDeductions = Math.round(totalDeductions / 12);
+    const monthlyNet = monthlyGross - monthlyDeductions;
+    const monthlyBenefits = Math.round(totalBenefits / 12);
 
     return {
-        success: true,
+        isValid,
+        mismatchAmount: Math.round(mismatch),
+        expectedCTC: enteredCTC,
+        receivedCTC: Math.round(calculatedCTC),
         monthly: {
-            grossEarnings: grossEarningsMonthly,
-            totalDeductions: totalDeductionsMonthly,
-            netSalary: netSalaryMonthly,
-            employerContributions: totalEmployerContributionsMonthly
+            grossEarnings: monthlyGross,
+            totalDeductions: monthlyDeductions,
+            netSalary: monthlyNet,
+            employerContributions: monthlyBenefits
         },
         annual: {
-            ctc: calculatedAnnualCTC
+            ctc: Math.round(calculatedCTC)
         },
-        isValid: !isMismatch,
-        mismatchAmount: round2(calculatedAnnualCTC - Number(enteredCTC)),
-        expectedCTC: Number(enteredCTC),
-        receivedCTC: calculatedAnnualCTC,
-        // Detailed lists for persistence
-        earnings: activeEarnings,
-        deductions: activeDeductions,
-        employerContributions: activeBenefits
+        earnings: (earnings || []).map(e => ({
+            ...e,
+            amount: Math.round((Number(e.amount) || Number(e.monthly) || 0) * 100) / 100
+        })),
+        deductions: (deductions || []).map(d => ({
+            ...d,
+            amount: Math.round((Number(d.amount) || Number(d.monthly) || 0) * 100) / 100
+        })),
+        employerContributions: (employerContributions || []).map(b => ({
+            ...b,
+            amount: Math.round((Number(b.amount) || Number(b.monthly) || 0) * 100) / 100
+        }))
     };
-}
+};
 
-/**
- * Generates a suggested salary breakup based on standard industry rules.
- * This is a helper, not a mandatory structure.
- */
-function suggestSalaryBreakup({ enteredCTC, availableEarnings = [], availableDeductions = [], availableEmployerContributions = [] }) {
-    const annualCTC = Number(enteredCTC) || 0;
-    const monthlyCTC = round2(annualCTC / 12);
+// Suggest a standard salary structure based on CTC
+exports.suggestSalaryBreakup = ({ enteredCTC, availableEarnings, availableDeductions, availableEmployerContributions }) => {
+    const monthlyCTC = Math.round(enteredCTC / 12);
 
-    let suggestedEarnings = [];
-    let suggestedDeductions = [];
-    let suggestedBenefits = [];
+    // 1. Basic = 50% of CTC
+    let basic = Math.round(monthlyCTC * 0.5);
 
-    // 1. Basic (50% of CTC usually, but let's take 50% of Monthly CTC)
-    const basicAmount = round2(monthlyCTC * 0.5);
+    // 2. PF (Employer) = 12% of Basic (capped at 15000 basic -> 1800)
+    let pfWage = Math.min(basic, 15000);
+    let employerPF = Math.round(pfWage * 0.12);
 
-    // 2. HRA (40% of Basic as standard)
-    const hraAmount = round2(basicAmount * 0.4);
+    // 3. HRA = 40% of Basic (Standard)
+    let hra = Math.round(basic * 0.4);
 
-    // 3. PF Calculations (Standard capped at 1800 or 12% of Basic)
-    const pfBase = Math.min(basicAmount, 15000); // Standard PF ceiling
-    const pfAmount = pfBase >= 15000 ? 1800 : round2(pfBase * 0.12);
+    // 4. Special = Remainder
+    // CTC = Basic + HRA + Special + EmployerPF
+    // Special = CTC - Basic - HRA - EmployerPF
+    let special = monthlyCTC - basic - hra - employerPF;
 
-    // 4. ESIC (Employer 3.25%, Employee 0.75% of Gross if Gross <= 21000)
-    // For simplicity in suggestion, we skip ESIC unless user manually adds it
-
-    // 5. Construct Suggested Arrays
-    let consumedMonthly = 0;
-
-    const addEarning = (name, amt, patterns) => {
-        const comp = availableEarnings.find(e => {
-            const dbName = (e.name || '').toLowerCase();
-            const pName = (e.payslipName || '').toLowerCase();
-            return patterns.some(p => dbName.includes(p) || pName.includes(p));
-        });
-
-        if (comp) {
-            console.log(`[SUGGEST_SERVICE] Match found for ${name}: ${comp.name} (Amount: ${amt})`);
-            suggestedEarnings.push({ componentId: comp._id, name: comp.name, amount: amt, isSelected: true, type: 'earning' });
-            consumedMonthly += amt;
-            return true;
-        }
-        console.warn(`[SUGGEST_SERVICE] NO MATCH found for expected component: ${name} (Patterns: ${patterns})`);
-        return false;
-    };
-
-    const addBenefit = (name, amt, patterns) => {
-        const comp = availableEmployerContributions.find(b => {
-            const dbName = (b.name || '').toLowerCase();
-            const pName = (b.payslipName || '').toLowerCase();
-            return patterns.some(p => dbName.includes(p) || pName.includes(p));
-        });
-        if (comp) {
-            suggestedBenefits.push({ componentId: comp._id, name: comp.name, amount: amt, isSelected: true, type: 'employer_contribution' });
-            consumedMonthly += amt;
-            return true;
-        }
-        return false;
-    };
-
-    const addDeduction = (name, amt, patterns) => {
-        const comp = availableDeductions.find(d => {
-            const dbName = (d.name || '').toLowerCase();
-            const pName = (d.payslipName || '').toLowerCase();
-            return patterns.some(p => dbName.includes(p) || pName.includes(p));
-        });
-        if (comp) {
-            suggestedDeductions.push({ componentId: comp._id, name: comp.name, amount: amt, isSelected: true, type: 'deduction' });
-            return true;
-        }
-        return false;
-    };
-
-    addEarning('Basic', basicAmount, ['basic', 'pay', 'fixed pay']);
-    addEarning('HRA', hraAmount, ['hra', 'house rent', 'accommodation']);
-
-    // Add standard fixed allowances if available
-    addEarning('Medical Reimbursement', 1250, ['medical']);
-    addEarning('Conveyance Allowance', 1600, ['conveyance', 'travel', 'transport']);
-    addEarning('Education Allowance', 100, ['education', 'child']);
-    addEarning('Book & Periodicals', 1000, ['book', 'periodical', 'journal', 'news']);
-    addEarning('Uniform Allowance', 500, ['uniform', 'attire']);
-    addEarning('Mobile Reimbursement', 500, ['mobile', 'phone', 'telephone', 'data']);
-
-    // Statutory and Benefits - Add even if amount is 0 as they are often standard selections
-    addBenefit('Employer PF', pfAmount, ['pf', 'provident', 'employer', 'epf']);
-    addBenefit('Gratuity', 1000, ['gratuity', 'retiral']);
-    addBenefit('Medical Insurance', 500, ['insurance', 'mediclaim', 'health', 'medical']);
-
-    addDeduction('Employee PF', pfAmount, ['pf', 'provident', 'employee', 'epf']);
-    addDeduction('Professional Tax', 200, ['pt', 'professional tax', 'tax on employment']);
-
-    // 6. Balance the rest into Special Allowance
-    const finalRemainder = Math.max(0, round2(monthlyCTC - consumedMonthly));
-
-    // Check if we already matched a "Special Allowance" type component earlier in the list
-    const existingSpecial = suggestedEarnings.find(e =>
-        ['special', 'allowance', 'other', 'balance', 'flexible', 'additional'].some(p => e.name.toLowerCase().includes(p))
-    );
-
-    if (existingSpecial) {
-        existingSpecial.amount = finalRemainder;
-    } else {
-        addEarning('Special Allowance', finalRemainder, ['special', 'allowance', 'other', 'balance', 'flexible', 'additional', 'adhoc']);
+    if (special < 0) {
+        // Adjust Basic to fit
+        basic = Math.round(monthlyCTC * 0.4);
+        hra = Math.round(basic * 0.4);
+        pfWage = Math.min(basic, 15000);
+        employerPF = Math.round(pfWage * 0.12);
+        special = monthlyCTC - basic - hra - employerPF;
     }
 
-    console.log(`[SUGGEST_SERVICE] Final suggested earnings count: ${suggestedEarnings.length}`);
+    // Construct response
+    const suggestedEarnings = [
+        { name: 'Basic Salary', label: 'Basic Salary', amount: basic, monthly: basic },
+        { name: 'House Rent Allowance', label: 'House Rent Allowance', amount: hra, monthly: hra },
+        { name: 'Special Allowance', label: 'Special Allowance', amount: special > 0 ? special : 0, monthly: special > 0 ? special : 0 }
+    ];
+
+    const suggestedBenefits = [
+        { name: 'Employer PF', label: 'Employer PF', amount: employerPF, monthly: employerPF }
+    ];
+
+    const suggestedDeductions = [
+        { name: 'Employee PF', label: 'Employee PF', amount: employerPF, monthly: employerPF },
+        { name: 'Professional Tax', label: 'Professional Tax', amount: 200, monthly: 200 }
+    ];
+
     return {
         earnings: suggestedEarnings,
+        employerContributions: suggestedBenefits,
         deductions: suggestedDeductions,
-        employerContributions: suggestedBenefits
+        totals: {
+            monthlyCTC,
+            annualCTC: enteredCTC
+        }
     };
-}
-
-module.exports = {
-    calculateSalaryBreakup,
-    suggestSalaryBreakup
 };

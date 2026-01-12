@@ -116,8 +116,21 @@ const ProcessPayroll = () => {
                 selectedEmployees
             });
 
-            const calculatedPreview = res.data.data && res.data.data[0];
-            console.log(calculatedPreview);
+
+            console.log('Preview Response:', res.data.data);
+            
+            const newPreviews = {};
+            res.data.data.forEach(p => {
+                newPreviews[p.employeeId] = p;
+            });
+            setPreviews(newPreviews);
+            message.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
+        } catch (err) {
+            console.error('Calculation Error:', err);
+            message.error(err.response?.data?.message || "Calculation failed");
+        } finally {
+            setCalculating(false);
+// >>>>>>> main
         }
         catch(Error){
             message.error('Failed to Fetch the Calculted Preview');
@@ -144,37 +157,6 @@ const ProcessPayroll = () => {
             message.error('Failed to fetch preview');
         }
     };
-
-    // const runPayroll = async () => {
-    //     const itemsToProcess = employees
-    //         .filter(e => selectedRowKeys.includes(e._id))
-    //         .filter(e => e.selectedTemplateId)
-    //         .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
-
-    //         console.log("Hello",employees.find(emp => emp._id === employeeId));
-
-    //     if (itemsToProcess.length === 0) {
-    //         message.error("No valid employees selected");
-    //         return;
-    //     }
-
-    //     if (!window.confirm(`Are you sure you want to run payroll for ${itemsToProcess.length} employees?`)) return;
-
-    //     setLoading(true);
-    //     try {
-    //         const res = await api.post('/payroll/process/run', {
-    //             month: month.format('YYYY-MM'),
-    //             items: itemsToProcess
-    //         });
-    //         message.success("Payroll processed successfully!");
-    //         // Maybe redirect to dashboard or results?
-    //         fetchEmployees(); // Refresh status
-    //     } catch (err) {
-    //         message.error(err.response?.data?.message || "Run failed");
-    //     } finally {
-    //         setLoading(false);
-    //     }
-    // };
 
     const runPayroll = async () => {
     const itemsToProcess = employees
@@ -243,34 +225,49 @@ const ProcessPayroll = () => {
                 </div>
             )
         },
-        // {
-        //     title: 'Salary Template',
-        //     key: 'template',
-        //     render: (_, record) => (
-        //         <Select
-        //             className="w-48"
-        //             placeholder="Select Template"
-        //             value={record.selectedTemplateId}
-        //             onChange={(val) => handleTemplateChange(record._id, val)}
-        //             status={!record.selectedTemplateId ? 'error' : ''}
-        //         >
-        //             {templates.map(t => (
-        //                 <Option key={t._id} value={t._id}>{t.name} ({t.annualCTC})</Option>
-        //             ))}
-        //         </Select>
-        //     )
-        // },
         {
             title: 'Preview (Net Pay)',
             key: 'preview',
+            width: 250,
             render: (_, record) => {
                 const prev = previews[record._id];
-                if (!prev) return <span className="text-slate-400 italic">--</span>;
-                if (prev.error) return <Tooltip title={prev.error}><AlertCircle className="w-4 h-4 text-red-500" /></Tooltip>;
+                if (!prev) {
+                    return (
+                        <Tooltip title="Select this employee and click 'Calculate Preview' to see salary details">
+                            <span className="text-slate-400 italic text-xs">--</span>
+                        </Tooltip>
+                    );
+                }
+                if (prev.error) return (
+                    <Tooltip title={prev.error}>
+                        <div className="flex items-center gap-1">
+                            <AlertCircle className="w-4 h-4 text-red-500" />
+                            <span className="text-xs text-red-600">Error</span>
+                        </div>
+                    </Tooltip>
+                );
                 return (
-                    <div className="flex items-center gap-2">
-                        <div className="font-mono font-bold text-emerald-700">₹{prev.net?.toLocaleString()}</div>
-                        <Button size="small" onClick={() => { setDetailData(prev); setDetailDrawer({ visible: true, empId: record._id }); }} icon={<Eye size={14} />}>Details</Button>
+                    <div className="space-y-1 bg-emerald-50 p-2 rounded">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-600 font-medium">Basic:</span>
+                            <span className="font-mono font-semibold text-slate-800">₹{Math.round(prev.gross || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-600 font-medium">Net Pay:</span>
+                            <span className="font-mono font-bold text-emerald-700">₹{Math.round(prev.net || 0).toLocaleString()}</span>
+                        </div>
+                        <Button 
+                            size="small" 
+                            type="text"
+                            onClick={() => { 
+                                setDetailData(prev); 
+                                setDetailDrawer({ visible: true, empId: record._id }); 
+                            }} 
+                            icon={<Eye size={14} />}
+                            className="mt-1 text-blue-600 hover:text-blue-700 h-6"
+                        >
+                            Details
+                        </Button>
                     </div>
                 );
             }
@@ -316,32 +313,32 @@ const ProcessPayroll = () => {
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                     <h3 className="font-semibold text-slate-700">Employee List ({employees.length})</h3>
-                        <div className="flex gap-4 items-center">
-                            <Space>
-                                <Button
-                                    icon={<IndianRupee  size={16} />}
-                                    onClick={calculatePreview}
-                                    loading={calculating}
-                                    disabled={selectedRowKeys.length === 0}
-                                >
-                                    Calculate Preview
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    icon={<PlayCircle size={16} />}
-                                    onClick={runPayroll}
-                                    loading={payrollRunning}
-                                    disabled={selectedRowKeys.length === 0}
-                                    className="bg-emerald-600 hover:bg-emerald-700"
-                                >
-                                    Run Payroll
-                                </Button>
-                            </Space>
-                            <div className="ml-4 flex items-center gap-3">
-                                <Tag color="blue">Selected: {selectedRowKeys.length}</Tag>
-                                <Tag color="green">Previews: {Object.keys(previews).length}</Tag>
-                            </div>
+                    <div className="flex gap-4 items-center">
+                        <Space>
+                            <Button
+                                icon={<IndianRupee size={16} />}
+                                onClick={calculatePreview}
+                                loading={calculating}
+                                disabled={selectedRowKeys.length === 0}
+                            >
+                                Calculate Preview
+                            </Button>
+                            <Button
+                                type="primary"
+                                icon={<PlayCircle size={16} />}
+                                onClick={runPayroll}
+                                loading={payrollRunning}
+                                disabled={selectedRowKeys.length === 0}
+                                className="bg-emerald-600 hover:bg-emerald-700"
+                            >
+                                Run Payroll
+                            </Button>
+                        </Space>
+                        <div className="ml-4 flex items-center gap-3">
+                            <Tag color="blue">Selected: {selectedRowKeys.length}</Tag>
+                            <Tag color="green">Previews: {Object.keys(previews).length}</Tag>
                         </div>
+                    </div>
                 </div>
 
                 <Table
@@ -357,7 +354,7 @@ const ProcessPayroll = () => {
             {/* Payroll Result Modal */}
             <Modal
                 title={`Payroll Run Results — ${month.format('MMMM YYYY')}`}
-                visible={!!payrollResult}
+                open={!!payrollResult}
                 onCancel={() => setPayrollResult(null)}
                 footer={[
                     <Button key="close" type="primary" onClick={() => setPayrollResult(null)}>
@@ -450,7 +447,7 @@ const ProcessPayroll = () => {
                 title={detailData ? `Payslip Preview — ${detailData.employeeInfo?.employeeId || ''}` : 'Payslip Preview'}
                 placement="right"
                 onClose={() => { setDetailDrawer({ visible: false, empId: null }); setDetailData(null); }}
-                visible={detailDrawer.visible}
+                open={detailDrawer.visible}
             >
                 {detailData ? (
                     <Spin spinning={false} className="space-y-6">

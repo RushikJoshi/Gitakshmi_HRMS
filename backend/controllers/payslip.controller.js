@@ -1,38 +1,77 @@
 /**
- * Get models from tenant database
+ * Payslip Controller - Helper to get models from tenant database
  */
 function getModels(req) {
     if (!req.tenantDB) {
-        throw new Error('Tenant database connection not available');
+        throw new Error("Tenant database connection not available");
     }
+    const db = req.tenantDB;
     try {
         return {
-            Payslip: req.tenantDB.model('Payslip'),
-            Employee: req.tenantDB.model('Employee')
+            Payslip: db.model("Payslip"),
+            PayrollRun: db.model("PayrollRun"),
+            Employee: db.model("Employee")
         };
     } catch (err) {
-        console.error('[getModels] Error retrieving models in payslip.controller:', err.message);
+        console.error("[payslip.controller] Error retrieving models:", err.message);
         throw new Error(`Failed to retrieve models from tenant database: ${err.message}`);
     }
 }
 
+const PayslipController = {};
+
 /**
- * Get employee payslips (for employee self-service)
- * GET /api/payroll/payslips/my
+ * Get payslip for a specific employee and period
+ * GET /api/payslip/:employeeId/:period
+ */
+exports.getPayslip = async (req, res) => {
+    try {
+        const { employeeId, period } = req.params;
+        const tenantId = req.user.tenantId;
+
+        const { Payslip, Employee } = getModels(req);
+
+        // Find the payslip for the period
+        const payslip = await Payslip.findOne({ tenantId, employeeId, period }).lean();
+
+        if (!payslip) {
+            return res.status(404).json({ success: false, message: "Payslip not found for this period" });
+        }
+
+        // Populate employee details for display
+        const employee = await Employee.findById(employeeId).select('firstName lastName employeeId department designation bankDetails').lean();
+
+        res.json({
+            success: true,
+            data: {
+                employee,
+                period,
+                earnings: payslip.earnings,
+                deductions: payslip.deductions,
+                benefits: payslip.benefits,
+                attendance: payslip.attendance,
+                totals: {
+                    grossEarnings: payslip.grossEarnings,
+                    totalDeductions: payslip.totalDeductions,
+                    netPay: payslip.netPay
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("[GET_PAYSLIP] Error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Get all payslips for the logged-in employee
+ * GET /api/payslip/my
  */
 exports.getMyPayslips = async (req, res) => {
     try {
-        // Validate tenant context
-        if (!req.user || !req.user.tenantId) {
-            return res.status(401).json({ success: false, error: "unauthorized", message: "User context not found" });
-        }
-
-        const tenantId = req.user.tenantId;
-        if (!req.tenantDB) {
-            return res.status(500).json({ success: false, error: "tenant_db_unavailable", message: "Tenant database not available" });
-        }
-
         const employeeId = req.user.id || req.user._id;
+        const tenantId = req.user.tenantId;
         const { year, month } = req.query;
 
         const { Payslip } = getModels(req);
@@ -196,3 +235,10 @@ exports.downloadPayslipPDF = async (req, res) => {
     }
 };
 
+module.exports = {
+    getPayslip: exports.getPayslip,
+    getMyPayslips: exports.getMyPayslips,
+    getPayslipById: exports.getPayslipById,
+    getPayslips: exports.getPayslips,
+    downloadPayslipPDF: exports.downloadPayslipPDF
+};

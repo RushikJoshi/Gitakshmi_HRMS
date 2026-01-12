@@ -577,7 +577,10 @@ async function calculatePostTaxDeductions(
 
 module.exports = {
     runPayroll,
+// <<<<<<< HEAD
+// =======
     // Exported for controllers to perform previews and single-employee calculations
+// >>>>>>> dev-dhiren
     calculateEmployeePayroll
 };
 
