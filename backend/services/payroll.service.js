@@ -10,7 +10,6 @@ const mongoose = require('mongoose');
  * 4. Follows mandatory calculation order
  */
 
-const mongoose = require('mongoose');
 const tdsService = require('./tds.service');
 
 /**
@@ -592,10 +591,7 @@ async function calculatePostTaxDeductions(
 
 module.exports = {
     runPayroll,
-// <<<<<<< HEAD
-// =======
     // Exported for controllers to perform previews and single-employee calculations
-// >>>>>>> dev-dhiren
     calculateEmployeePayroll
 };
 
