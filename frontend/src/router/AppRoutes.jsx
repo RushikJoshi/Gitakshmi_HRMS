@@ -57,7 +57,7 @@ import NewDeduction from '../pages/HR/Payroll/Deductions/NewDeduction';
 import PayrollRules from '../pages/Admin/PayrollRules';
 import RunPayroll from '../pages/HR/Payroll/RunPayroll';
 import Payslips from '../pages/HR/Payroll/Payslips';
-import ProcessPayroll from '../pages/HR/Payroll/ProcessPayroll';
+import ProcessPayroll from '../pages/HR/Payroll/ProcessPayroll.jsx';
 import PayrollDashboard from '../pages/HR/Payroll/PayrollDashboard';
 
 // Employee
