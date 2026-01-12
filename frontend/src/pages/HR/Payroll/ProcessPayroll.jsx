@@ -14,16 +14,13 @@ const ProcessPayroll = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [calculating, setCalculating] = useState(false);
     const [previews, setPreviews] = useState({}); // { empId: { gross, net, error } }
-<<<<<<< Updated upstream
     const [detailDrawer, setDetailDrawer] = useState({ visible: false, empId: null });
     const [detailData, setDetailData] = useState(null);
     const [payrollRunning, setPayrollRunning] = useState(false);
     const [payrollResult, setPayrollResult] = useState(null);
     const [showPayslipsModal, setShowPayslipsModal] = useState(false);
     const [allPreviews, setAllPreviews] = useState([]);
-=======
     const [messageApi, contextHolder] = message.useMessage();
->>>>>>> Stashed changes
 
     // Fetch Templates on Mount
     useEffect(() => {
@@ -70,7 +67,50 @@ const ProcessPayroll = () => {
         });
     };
 
+    // const calculatePreview = async () => {
+    //     const itemsToPreview = employees
+    //         .filter(e => selectedRowKeys.includes(e._id))
+    //         .map(e => e.key) // Only those with templates
+    //         // .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
+
+    //         // console.log(itemsToPreview);
+
+    //     const findedEmployee = Employee.find(itemsToPreview);
+    //     console.log(findedEmployee);
+
+    //     if (itemsToPreview.length === 0) {
+    //         message.warning("Select employees with templates assigned to preview");
+    //         return;
+    //     }
+
+    //     setCalculating(true);
+    //     try {
+    //         const res = await api.post('/payroll/process/preview', {
+    //             month: month.format('YYYY-MM'),
+    //             items: itemsToPreview
+    //         });
+
+    //         const newPreviews = {};
+    //         res.data.data.forEach(p => {
+    //             newPreviews[p.employeeId] = p;
+    //         });
+    //         setPreviews(newPreviews);
+    //         message.success("Calculated successfully");
+    //     } catch (err) {
+    //         message.error("Calculation failed");
+    //     } finally {
+    //         setCalculating(false);
+    //     }
+    // };
+
+
     const calculatePreview = async () => {
+        
+        const selectedEmployees = employees
+        .filter( e => selectedRowKeys.includes(e._id));
+        
+        console.log(selectedEmployees);
+        
         const itemsToPreview = employees
             .filter(e => selectedRowKeys.includes(e._id))
             .filter(e => e.selectedTemplateId) // Only those with templates
@@ -83,10 +123,11 @@ const ProcessPayroll = () => {
 
         setCalculating(true);
         try {
-            const res = await api.post('/payroll/process/preview', {
-                month: month.format('YYYY-MM'),
-                items: itemsToPreview
+
+            const res = await axios.post('/payroll/process/calculateNetPreview', {
+                selectedEmployees
             });
+
 
             console.log('Preview Response:', res.data.data);
             
@@ -95,16 +136,11 @@ const ProcessPayroll = () => {
                 newPreviews[p.employeeId] = p;
             });
             setPreviews(newPreviews);
-<<<<<<< Updated upstream
             message.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
         } catch (err) {
             console.error('Calculation Error:', err);
             message.error(err.response?.data?.message || "Calculation failed");
-=======
             messageApi.success("Calculated successfully");
-        } catch (err) {
-            messageApi.error("Calculation failed");
->>>>>>> Stashed changes
         } finally {
             setCalculating(false);
         }
@@ -119,7 +155,6 @@ const ProcessPayroll = () => {
                 month: month.format('YYYY-MM'),
                 items: [{ employeeId: emp._id, salaryTemplateId: emp.selectedTemplateId }]
             });
-<<<<<<< Updated upstream
 
             const p = res.data.data && res.data.data[0];
             setPreviews(prev => ({ ...prev, [emp._id]: p }));
@@ -127,15 +162,11 @@ const ProcessPayroll = () => {
             setDetailDrawer({ visible: true, empId: emp._id });
         } catch (err) {
             message.error('Failed to fetch preview');
-=======
             messageApi.success("Payroll processed successfully!");
             // Maybe redirect to dashboard or results?
             fetchEmployees(); // Refresh status
-        } catch (err) {
-            messageApi.error(err.response?.data?.message || "Run failed");
         } finally {
             setLoading(false);
->>>>>>> Stashed changes
         }
     };
 
@@ -207,8 +238,6 @@ const ProcessPayroll = () => {
             )
         },
         {
-<<<<<<< Updated upstream
-=======
             title: 'Salary Template',
             key: 'template',
             render: (_, record) => (
@@ -226,7 +255,6 @@ const ProcessPayroll = () => {
             )
         },
         {
->>>>>>> Stashed changes
             title: 'Preview (Net Pay)',
             key: 'preview',
             width: 250,

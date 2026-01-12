@@ -1,5 +1,4 @@
 /**
-<<<<<<< Updated upstream
  * Payslip Controller - Helper to get models from tenant database
  */
 function getModels(req) {
@@ -18,43 +17,6 @@ function getModels(req) {
         throw new Error(`Failed to retrieve models from tenant database: ${err.message}`);
     }
 }
-=======
- * Payslip Controller
- */
-const PayslipController = {
-    /**
-     * Get all payslips for HR admin view
-     * GET /api/payroll/payslips
-     */
-    getPayslips: async (req, res) => {
-        try {
-            const tenantDB = req.tenantDB;
-            const Payslip = tenantDB.model('Payslip');
-
-            // Fetch all payslips for the tenant
-            // In a large system, we'd add pagination and stronger filtering here
-            const payslips = await Payslip.find({})
-                .sort({ year: -1, month: -1, createdAt: -1 });
-
-            res.json({ success: true, data: payslips });
-        } catch (error) {
-            console.error("[GET_PAYSLIPS] Error:", error);
-            res.status(500).json({ success: false, message: error.message });
-        }
-    },
-
-    /**
-     * Get payslip for a specific employee and period
-     * GET /api/payslip/:employeeId/:period
-     */
-    getPayslip: async (req, res) => {
-        try {
-            const { employeeId, period } = req.params;
-            const tenantDB = req.tenantDB;
-            const tenantId = req.tenantId;
->>>>>>> Stashed changes
-
-const PayslipController = {};
 
 /**
  * Get payslip for a specific employee and period
@@ -94,165 +56,9 @@ exports.getPayslip = async (req, res) => {
             }
         });
 
-<<<<<<< Updated upstream
     } catch (error) {
         console.error("[GET_PAYSLIP] Error:", error);
         res.status(500).json({ success: false, message: error.message });
-=======
-        } catch (error) {
-            console.error("[GET_PAYSLIP] Error:", error);
-            res.status(500).json({ success: false, message: error.message });
-        }
-    },
-
-    /**
-     * Get all payslips for the logged-in employee
-     * GET /api/payroll/payslips/my
-     */
-    getMyPayslips: async (req, res) => {
-        try {
-            const employeeId = req.user.id || req.user._id;
-            const tenantDB = req.tenantDB;
-            const Payslip = tenantDB.model('Payslip');
-
-            // Find all payslips for this employee
-            const payslips = await Payslip.find({
-                employeeId: employeeId
-            }).sort({ year: -1, month: -1 });
-
-            res.json({ success: true, data: payslips });
-        } catch (error) {
-            res.status(500).json({ success: false, message: error.message });
-        }
-    },
-
-    /**
-     * Generate and download payslip PDF
-     * POST /api/payroll/payslips/:id/generate-pdf
-     */
-    generatePayslipPDF: async (req, res) => {
-        try {
-            const { id } = req.params;
-            const tenantDB = req.tenantDB;
-            const Payslip = tenantDB.model('Payslip');
-
-            const payslip = await Payslip.findById(id);
-            if (!payslip) {
-                return res.status(404).json({ success: false, message: 'Payslip not found' });
-            }
-
-            // Use PDFKit to generate PDF
-            const PDFDocument = require('pdfkit');
-            const doc = new PDFDocument({ margin: 50 });
-
-            // Set response headers
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename=Payslip_${payslip.employeeInfo?.name}_${payslip.month}-${payslip.year}.pdf`);
-
-            // Pipe PDF to response
-            doc.pipe(res);
-
-            // Header
-            doc.fontSize(20).text('PAYSLIP', { align: 'center' });
-            doc.moveDown();
-            doc.fontSize(12).text(`${new Date(0, payslip.month - 1).toLocaleString('default', { month: 'long' })} ${payslip.year}`, { align: 'center' });
-            doc.moveDown(2);
-
-            // Employee Info
-            doc.fontSize(14).text('Employee Information', { underline: true });
-            doc.moveDown(0.5);
-            doc.fontSize(10);
-            doc.text(`Name: ${payslip.employeeInfo?.name || 'N/A'}`);
-            doc.text(`Employee ID: ${payslip.employeeInfo?.employeeId || 'N/A'}`);
-            doc.text(`Department: ${payslip.employeeInfo?.department || 'N/A'}`);
-            doc.text(`Designation: ${payslip.employeeInfo?.designation || 'N/A'}`);
-            doc.moveDown(2);
-
-            // Earnings Section
-            doc.fontSize(14).text('Earnings', { underline: true });
-            doc.moveDown(0.5);
-            doc.fontSize(10);
-
-            if (payslip.earningsSnapshot && payslip.earningsSnapshot.length > 0) {
-                payslip.earningsSnapshot.forEach(e => {
-                    doc.text(`${e.name}`, 50, doc.y, { continued: true });
-                    doc.text(`₹${e.amount?.toLocaleString()}`, { align: 'right' });
-                });
-            }
-            doc.moveDown(0.5);
-            doc.font('Helvetica-Bold');
-            doc.text('Gross Earnings', 50, doc.y, { continued: true });
-            doc.text(`₹${payslip.grossEarnings?.toLocaleString()}`, { align: 'right' });
-            doc.font('Helvetica');
-            doc.moveDown(2);
-
-            // Deductions Section
-            doc.fontSize(14).text('Deductions', { underline: true });
-            doc.moveDown(0.5);
-            doc.fontSize(10);
-
-            if (payslip.preTaxDeductionsSnapshot && payslip.preTaxDeductionsSnapshot.length > 0) {
-                payslip.preTaxDeductionsSnapshot.forEach(d => {
-                    doc.text(`${d.name}`, 50, doc.y, { continued: true });
-                    doc.text(`₹${d.amount?.toLocaleString()}`, { align: 'right' });
-                });
-            }
-
-            if (payslip.incomeTax > 0) {
-                doc.text('Income Tax (TDS)', 50, doc.y, { continued: true });
-                doc.text(`₹${payslip.incomeTax?.toLocaleString()}`, { align: 'right' });
-            }
-
-            if (payslip.postTaxDeductionsSnapshot && payslip.postTaxDeductionsSnapshot.length > 0) {
-                payslip.postTaxDeductionsSnapshot.forEach(d => {
-                    doc.text(`${d.name}`, 50, doc.y, { continued: true });
-                    doc.text(`₹${d.amount?.toLocaleString()}`, { align: 'right' });
-                });
-            }
-
-            const totalDeductions = (payslip.preTaxDeductionsTotal || 0) + (payslip.incomeTax || 0) + (payslip.postTaxDeductionsTotal || 0);
-            doc.moveDown(0.5);
-            doc.font('Helvetica-Bold');
-            doc.text('Total Deductions', 50, doc.y, { continued: true });
-            doc.text(`₹${totalDeductions.toLocaleString()}`, { align: 'right' });
-            doc.font('Helvetica');
-            doc.moveDown(2);
-
-            // Net Pay
-            doc.fontSize(16).fillColor('#059669');
-            doc.font('Helvetica-Bold');
-            doc.text('Net Pay', 50, doc.y, { continued: true });
-            doc.text(`₹${payslip.netPay?.toLocaleString()}`, { align: 'right' });
-            doc.fillColor('#000000');
-            doc.font('Helvetica');
-            doc.moveDown(2);
-
-            // Attendance Summary
-            if (payslip.attendanceSummary) {
-                doc.fontSize(14).text('Attendance Summary', { underline: true });
-                doc.moveDown(0.5);
-                doc.fontSize(10);
-                doc.text(`Total Days: ${payslip.attendanceSummary.totalDays || 0}`);
-                doc.text(`Present Days: ${payslip.attendanceSummary.presentDays || 0}`);
-                doc.text(`Leave Days: ${payslip.attendanceSummary.leaveDays || 0}`);
-                doc.text(`LOP Days: ${payslip.attendanceSummary.lopDays || 0}`);
-            }
-
-            // Footer
-            doc.moveDown(3);
-            doc.fontSize(8).text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
-            doc.text('This is a system-generated document', { align: 'center' });
-
-            // Finalize PDF
-            doc.end();
-
-        } catch (error) {
-            console.error('[GENERATE_PDF] Error:', error);
-            if (!res.headersSent) {
-                res.status(500).json({ success: false, message: error.message });
-            }
-        }
->>>>>>> Stashed changes
     }
 };
 
@@ -433,4 +239,4 @@ module.exports = {
     getPayslipById: exports.getPayslipById,
     getPayslips: exports.getPayslips,
     downloadPayslipPDF: exports.downloadPayslipPDF
-};
+}

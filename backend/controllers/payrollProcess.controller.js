@@ -314,13 +314,10 @@ exports.runPayroll = async (req, res) => {
         payrollRun.totalDeductions = totalGross - totalNet;
         await payrollRun.save();
 
-<<<<<<< Updated upstream
         // Respond with Complete Summary
-=======
         console.log(`✅ [RUN_PAYROLL] SUCCESS: processed ${successCount}, skipped ${skippedList.length}`);
 
         // Respond with Summary (200 OK)
->>>>>>> Stashed changes
         res.json({
             success: true,
             data: {
