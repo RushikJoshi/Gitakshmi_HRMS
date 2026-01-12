@@ -14,16 +14,15 @@ const ProcessPayroll = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [calculating, setCalculating] = useState(false);
     const [previews, setPreviews] = useState({}); // { empId: { gross, net, error } }
-<<<<<<< Updated upstream
+
+    // Merged States
     const [detailDrawer, setDetailDrawer] = useState({ visible: false, empId: null });
     const [detailData, setDetailData] = useState(null);
     const [payrollRunning, setPayrollRunning] = useState(false);
     const [payrollResult, setPayrollResult] = useState(null);
-    const [showPayslipsModal, setShowPayslipsModal] = useState(false);
-    const [allPreviews, setAllPreviews] = useState([]);
-=======
+
+    // Toast
     const [messageApi, contextHolder] = message.useMessage();
->>>>>>> Stashed changes
 
     // Fetch Templates on Mount
     useEffect(() => {
@@ -60,9 +59,6 @@ const ProcessPayroll = () => {
 
     const handleTemplateChange = (empId, val) => {
         setEmployees(prev => prev.map(e => e._id === empId ? { ...e, selectedTemplateId: val } : e));
-        // Trigger preview recalculation for this employee? 
-        // We can do it in bulk or single. Let's do single immediately or user clicks "Preview"
-        // Let's clear preview for this employee to indicate stale data
         setPreviews(prev => {
             const next = { ...prev };
             delete next[empId];
@@ -89,28 +85,24 @@ const ProcessPayroll = () => {
             });
 
             console.log('Preview Response:', res.data.data);
-            
+
             const newPreviews = {};
             res.data.data.forEach(p => {
                 newPreviews[p.employeeId] = p;
             });
             setPreviews(newPreviews);
-<<<<<<< Updated upstream
-            message.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
+            messageApi.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
         } catch (err) {
             console.error('Calculation Error:', err);
-            message.error(err.response?.data?.message || "Calculation failed");
-=======
-            messageApi.success("Calculated successfully");
-        } catch (err) {
-            messageApi.error("Calculation failed");
->>>>>>> Stashed changes
+            messageApi.error(err.response?.data?.message || "Calculation failed");
         } finally {
             setCalculating(false);
         }
+    };
+
     const fetchPreviewForEmployee = async (emp) => {
         if (!emp.selectedTemplateId) {
-            message.warning('Select a template for this employee first');
+            messageApi.warning('Select a template for this employee first');
             return;
         }
 
@@ -119,67 +111,57 @@ const ProcessPayroll = () => {
                 month: month.format('YYYY-MM'),
                 items: [{ employeeId: emp._id, salaryTemplateId: emp.selectedTemplateId }]
             });
-<<<<<<< Updated upstream
 
             const p = res.data.data && res.data.data[0];
             setPreviews(prev => ({ ...prev, [emp._id]: p }));
             setDetailData(p);
             setDetailDrawer({ visible: true, empId: emp._id });
         } catch (err) {
-            message.error('Failed to fetch preview');
-=======
-            messageApi.success("Payroll processed successfully!");
-            // Maybe redirect to dashboard or results?
-            fetchEmployees(); // Refresh status
-        } catch (err) {
-            messageApi.error(err.response?.data?.message || "Run failed");
-        } finally {
-            setLoading(false);
->>>>>>> Stashed changes
+            messageApi.error('Failed to fetch preview');
         }
     };
 
     const runPayroll = async () => {
-    const itemsToProcess = employees
-        .filter(e => selectedRowKeys.includes(e._id))
-        .filter(e => e.selectedTemplateId)
-        .map(e => ({
-            employeeId: e._id,
-            salaryTemplateId: e.selectedTemplateId
-        }));
+        const itemsToProcess = employees
+            .filter(e => selectedRowKeys.includes(e._id))
+            .filter(e => e.selectedTemplateId)
+            .map(e => ({
+                employeeId: e._id,
+                salaryTemplateId: e.selectedTemplateId
+            }));
 
-    if (itemsToProcess.length === 0) {
-        message.error("No valid employees selected");
-        return;
-    }
+        if (itemsToProcess.length === 0) {
+            messageApi.error("No valid employees selected");
+            return;
+        }
 
-    if (!window.confirm(
-        `Are you sure you want to process payroll for ${itemsToProcess.length} employees for ${month.format('MMMM YYYY')}?`
-    )) return;
+        if (!window.confirm(
+            `Are you sure you want to process payroll for ${itemsToProcess.length} employees for ${month.format('MMMM YYYY')}?`
+        )) return;
 
-    setPayrollRunning(true);
-    try {
-        const response = await api.post('/payroll/process/run', {
-            month: month.format('YYYY-MM'),
-            items: itemsToProcess
-        });
+        setPayrollRunning(true);
+        try {
+            const response = await api.post('/payroll/process/run', {
+                month: month.format('YYYY-MM'),
+                items: itemsToProcess
+            });
 
-        const result = response.data.data;
-        setPayrollResult(result);
-        setSelectedRowKeys([]);
-        setPreviews({});
-        
-        message.success(`Payroll processed successfully! ${result.processedEmployees} employees processed.`);
-        
-        // Refresh employee list
-        await fetchEmployees();
-    } catch (err) {
-        message.error(err.response?.data?.message || "Payroll run failed");
-        console.error("Payroll error:", err);
-    } finally {
-        setPayrollRunning(false);
-    }
-};
+            const result = response.data.data;
+            setPayrollResult(result);
+            setSelectedRowKeys([]);
+            setPreviews({});
+
+            messageApi.success(`Payroll processed successfully! ${result.processedEmployees} employees processed.`);
+
+            // Refresh employee list
+            await fetchEmployees();
+        } catch (err) {
+            messageApi.error(err.response?.data?.message || "Payroll run failed");
+            console.error("Payroll error:", err);
+        } finally {
+            setPayrollRunning(false);
+        }
+    };
 
     const columns = [
         {
@@ -207,8 +189,6 @@ const ProcessPayroll = () => {
             )
         },
         {
-<<<<<<< Updated upstream
-=======
             title: 'Salary Template',
             key: 'template',
             render: (_, record) => (
@@ -226,7 +206,6 @@ const ProcessPayroll = () => {
             )
         },
         {
->>>>>>> Stashed changes
             title: 'Preview (Net Pay)',
             key: 'preview',
             width: 250,
@@ -257,13 +236,13 @@ const ProcessPayroll = () => {
                             <span className="text-xs text-slate-600 font-medium">Net Pay:</span>
                             <span className="font-mono font-bold text-emerald-700">₹{Math.round(prev.net || 0).toLocaleString()}</span>
                         </div>
-                        <Button 
-                            size="small" 
+                        <Button
+                            size="small"
                             type="text"
-                            onClick={() => { 
-                                setDetailData(prev); 
-                                setDetailDrawer({ visible: true, empId: record._id }); 
-                            }} 
+                            onClick={() => {
+                                setDetailData(prev);
+                                setDetailDrawer({ visible: true, empId: record._id });
+                            }}
                             icon={<Eye size={14} />}
                             className="mt-1 text-blue-600 hover:text-blue-700 h-6"
                         >
@@ -278,7 +257,6 @@ const ProcessPayroll = () => {
             key: 'status',
             render: (_, record) => {
                 if (!record.selectedTemplateId) return <Tag color="warning">Missing Template</Tag>;
-                // Could add more status logic here
                 return <Tag color="blue">Ready</Tag>;
             }
         }
@@ -294,6 +272,7 @@ const ProcessPayroll = () => {
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
             {contextHolder}
+            {/* Header */}
             <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -314,6 +293,7 @@ const ProcessPayroll = () => {
                 </div>
             </div>
 
+            {/* Main Table Area */}
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                     <h3 className="font-semibold text-slate-700">Employee List ({employees.length})</h3>
@@ -465,110 +445,44 @@ const ProcessPayroll = () => {
                                 <Descriptions.Item label="Designation">{detailData.employeeInfo?.designation || '--'}</Descriptions.Item>
                             </Descriptions>
                         </div>
-
                         <Divider />
-
                         <Row gutter={16}>
                             <Col span={12}>
                                 <Card className="text-center">
-                                    <Statistic 
-                                        title="Gross Earnings" 
-                                        value={Math.round(detailData.grossEarnings || 0)} 
-                                        prefix="₹" 
-                                        valueStyle={{ color: '#1890ff' }}
-                                    />
+                                    <Statistic title="Gross Earnings" value={Math.round(detailData.grossEarnings || 0)} prefix="₹" valueStyle={{ color: '#1890ff' }} />
                                 </Card>
                             </Col>
                             <Col span={12}>
                                 <Card className="text-center">
-                                    <Statistic 
-                                        title="Net Pay" 
-                                        value={Math.round(detailData.netPay || 0)} 
-                                        prefix="₹" 
-                                        valueStyle={{ color: '#52c41a' }}
-                                    />
+                                    <Statistic title="Net Pay" value={Math.round(detailData.netPay || 0)} prefix="₹" valueStyle={{ color: '#52c41a' }} />
                                 </Card>
                             </Col>
                         </Row>
-
-                        <div>
-                            <h4 className="font-semibold mb-3">Attendance Summary</h4>
-                            <Descriptions bordered column={2} size="small">
-                                <Descriptions.Item label="Total Days">{detailData.attendanceSummary?.totalDays || '--'}</Descriptions.Item>
-                                <Descriptions.Item label="Present Days">{detailData.attendanceSummary?.presentDays || '--'}</Descriptions.Item>
-                                <Descriptions.Item label="Leave Days">{detailData.attendanceSummary?.leaveDays || '--'}</Descriptions.Item>
-                                <Descriptions.Item label="LOP Days">{detailData.attendanceSummary?.lopDays || '--'}</Descriptions.Item>
-                            </Descriptions>
-                        </div>
-
                         <div>
                             <h4 className="font-semibold mb-3">Earnings</h4>
                             {detailData.earningsSnapshot && detailData.earningsSnapshot.length > 0 ? (
-                                <Table
-                                    size="small"
-                                    dataSource={detailData.earningsSnapshot}
-                                    pagination={false}
-                                    rowKey={(r, i) => `${r.name}-${i}`}
-                                    columns={[
-                                        { title: 'Component', dataIndex: 'name', width: '60%' },
-                                        { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }
-                                    ]}
-                                />
-                            ) : (
-                                <Empty description="No earnings data" />
-                            )}
+                                <Table size="small" dataSource={detailData.earningsSnapshot} pagination={false} rowKey={(r, i) => `${r.name}-${i}`} columns={[{ title: 'Component', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No earnings data" />}
                         </div>
-
                         <div>
                             <h4 className="font-semibold mb-3">Pre-Tax Deductions</h4>
                             {detailData.preTaxDeductionsSnapshot && detailData.preTaxDeductionsSnapshot.length > 0 ? (
-                                <Table
-                                    size="small"
-                                    dataSource={detailData.preTaxDeductionsSnapshot}
-                                    pagination={false}
-                                    rowKey={(r, i) => `pre-${r.name || i}`}
-                                    columns={[
-                                        { title: 'Name', dataIndex: 'name', width: '60%' },
-                                        { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }
-                                    ]}
-                                />
-                            ) : (
-                                <Empty description="No pre-tax deductions" />
-                            )}
+                                <Table size="small" dataSource={detailData.preTaxDeductionsSnapshot} pagination={false} rowKey={(r, i) => `pre-${r.name || i}`} columns={[{ title: 'Name', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No pre-tax deductions" />}
                         </div>
-
                         <div>
                             <h4 className="font-semibold mb-3">Taxable Income & Tax</h4>
                             <Descriptions bordered column={1} size="small">
                                 <Descriptions.Item label="Taxable Income">₹{(detailData.taxableIncome || 0).toLocaleString()}</Descriptions.Item>
                                 <Descriptions.Item label="Income Tax (TDS)">₹{(detailData.incomeTax || 0).toLocaleString()}</Descriptions.Item>
-                                {detailData.tdsSnapshot && (
-                                    <>
-                                        <Descriptions.Item label="Annual Taxable Income">₹{(detailData.tdsSnapshot.annualTaxable || 0).toLocaleString()}</Descriptions.Item>
-                                        <Descriptions.Item label="Annual Tax">₹{(detailData.tdsSnapshot.annualTax || 0).toLocaleString()}</Descriptions.Item>
-                                    </>
-                                )}
                             </Descriptions>
                         </div>
-
                         <div>
                             <h4 className="font-semibold mb-3">Post-Tax Deductions</h4>
                             {detailData.postTaxDeductionsSnapshot && detailData.postTaxDeductionsSnapshot.length > 0 ? (
-                                <Table
-                                    size="small"
-                                    dataSource={detailData.postTaxDeductionsSnapshot}
-                                    pagination={false}
-                                    rowKey={(r, i) => `post-${r.name || i}`}
-                                    columns={[
-                                        { title: 'Name', dataIndex: 'name', width: '60%' },
-                                        { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }
-                                    ]}
-                                />
-                            ) : (
-                                <Empty description="No post-tax deductions" />
-                            )}
+                                <Table size="small" dataSource={detailData.postTaxDeductionsSnapshot} pagination={false} rowKey={(r, i) => `post-${r.name || i}`} columns={[{ title: 'Name', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No post-tax deductions" />}
                         </div>
-
                         {detailData.employerContributionsSnapshot && detailData.employerContributionsSnapshot.length > 0 && (
                             <div>
                                 <h4 className="font-semibold mb-3">Employer Contributions</h4>
@@ -585,13 +499,10 @@ const ProcessPayroll = () => {
                             </div>
                         )}
                     </Spin>
-                ) : (
-                    <Empty description="No preview available" />
-                )}
+                ) : <Empty description="No preview available" />}
             </Drawer>
         </div>
     );
 };
-}
 
 export default ProcessPayroll;

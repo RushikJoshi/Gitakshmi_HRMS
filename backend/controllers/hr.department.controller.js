@@ -35,7 +35,7 @@ exports.list = async function (req, res) {
     // Aggregate active employees count by department
     // Note: ensure we cast tenantId to ObjectId if strictly needed, usually mongoose handles it in match if passed as object
     // But for aggregate $match, we often need explicit ObjectId
-    const mongoose = require('mongoose');
+    // const mongoose = require('mongoose'); // Removed duplicate
     const tenantObjectId = new mongoose.Types.ObjectId(tenantId);
 
     const counts = await Employee.aggregate([
