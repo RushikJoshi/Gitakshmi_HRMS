@@ -130,11 +130,6 @@ const ProcessPayroll = () => {
             message.error(err.response?.data?.message || "Calculation failed");
         } finally {
             setCalculating(false);
-// >>>>>>> main
-        }
-        catch(Error){
-            message.error('Failed to Fetch the Calculted Preview');
-            console.log("Error at the preview calculating time");
         }
     }
     const fetchPreviewForEmployee = async (emp) => {
