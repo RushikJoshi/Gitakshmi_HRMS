@@ -27,7 +27,7 @@ const PayslipSchema = new mongoose.Schema({
         required: true,
         index: true
     },
-    
+
     // Pay Period
     month: {
         type: Number,
@@ -41,7 +41,7 @@ const PayslipSchema = new mongoose.Schema({
         min: 2000,
         max: 2100
     },
-    
+
     // Employee Info Snapshot
     employeeInfo: {
         employeeId: String,
@@ -53,7 +53,7 @@ const PayslipSchema = new mongoose.Schema({
         bankName: String,
         panNumber: String
     },
-    
+
     // Earnings Snapshot (from salary template)
     earningsSnapshot: [{
         name: { type: String, required: true },
@@ -63,27 +63,27 @@ const PayslipSchema = new mongoose.Schema({
         daysWorked: { type: Number }, // For pro-rata calculation
         totalDays: { type: Number }
     }],
-    
+
     // Pre-Tax Deductions Snapshot
     preTaxDeductionsSnapshot: [{
         name: { type: String, required: true },
         amount: { type: Number, required: true },
         category: { type: String, enum: ['EPF', 'ESI', 'PROFESSIONAL_TAX', 'TDS', 'OTHER'] }
     }],
-    
+
     // Post-Tax Deductions Snapshot
     postTaxDeductionsSnapshot: [{
         name: { type: String, required: true },
         amount: { type: Number, required: true },
         category: { type: String, enum: ['LOAN', 'LOP', 'ADVANCE', 'PENALTY', 'OTHER'] }
     }],
-    
+
     // Employer Contributions Snapshot (informational only)
     employerContributionsSnapshot: [{
         name: { type: String, required: true },
         amount: { type: Number, required: true }
     }],
-    
+
     // Calculated Totals
     grossEarnings: {
         type: Number,
@@ -115,7 +115,7 @@ const PayslipSchema = new mongoose.Schema({
         required: true,
         default: 0
     },
-    
+
     // Attendance Summary
     attendanceSummary: {
         totalDays: { type: Number },
@@ -124,7 +124,7 @@ const PayslipSchema = new mongoose.Schema({
         lopDays: { type: Number },
         holidayDays: { type: Number }
     },
-    
+
     // Salary Template Reference (for audit)
     salaryTemplateId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -135,19 +135,19 @@ const PayslipSchema = new mongoose.Schema({
         annualCTC: Number,
         monthlyCTC: Number
     },
-    
+
     // PDF File Path (generated after calculation)
     pdfPath: {
         type: String,
         trim: true
     },
-    
+
     // Data Integrity Hash
     hash: {
         type: String,
-        required: true
+        default: ''
     },
-    
+
     // Generation Metadata
     generatedAt: {
         type: Date,
@@ -175,31 +175,38 @@ PayslipSchema.index({ tenantId: 1, employeeId: 1, year: -1, month: -1 });
  * Generate hash for data integrity
  * Hash is calculated from all financial data
  */
-PayslipSchema.methods.generateHash = function() {
-    const data = JSON.stringify({
-        grossEarnings: this.grossEarnings,
-        preTaxDeductionsTotal: this.preTaxDeductionsTotal,
-        taxableIncome: this.taxableIncome,
-        incomeTax: this.incomeTax,
-        postTaxDeductionsTotal: this.postTaxDeductionsTotal,
-        netPay: this.netPay,
-        earnings: this.earningsSnapshot,
-        preTax: this.preTaxDeductionsSnapshot,
-        postTax: this.postTaxDeductionsSnapshot
-    });
-    return crypto.createHash('sha256').update(data).digest('hex');
+PayslipSchema.methods.generateHash = function () {
+    try {
+        const data = JSON.stringify({
+            grossEarnings: this.grossEarnings || 0,
+            preTaxDeductionsTotal: this.preTaxDeductionsTotal || 0,
+            taxableIncome: this.taxableIncome || 0,
+            incomeTax: this.incomeTax || 0,
+            postTaxDeductionsTotal: this.postTaxDeductionsTotal || 0,
+            netPay: this.netPay || 0,
+            earnings: this.earningsSnapshot ? this.earningsSnapshot.map(e => ({ name: e.name, amount: e.amount })) : [],
+            preTax: this.preTaxDeductionsSnapshot ? this.preTaxDeductionsSnapshot.map(d => ({ name: d.name, amount: d.amount })) : [],
+            postTax: this.postTaxDeductionsSnapshot ? this.postTaxDeductionsSnapshot.map(d => ({ name: d.name, amount: d.amount })) : []
+        });
+        return crypto.createHash('sha256').update(data).digest('hex');
+    } catch (err) {
+        console.error('[PAYSLIP] Error generating hash:', err);
+        // Return a fallback hash based on basic data
+        return crypto.createHash('sha256').update(`${this.employeeId}-${this.month}-${this.year}-${this.netPay}`).digest('hex');
+    }
 };
 
 /**
- * Pre-save hook: Generate hash before saving
+ * Pre-save hook: Generate hash before saving (if not already set)
  */
-PayslipSchema.pre('save', function(next) {
-    if (!this.hash || this.isModified('grossEarnings') || this.isModified('netPay')) {
-        this.hash = this.generateHash();
+PayslipSchema.pre('save', async function () {
+    // Hash should already be set by the service, but generate if missing
+    if (this.isNew || !this.hash || this.isModified('grossEarnings') || this.isModified('netPay')) {
+        if (!this.hash) {
+            this.hash = this.generateHash();
+        }
     }
-    next();
 });
 
 // Multi-tenant fix: Export ONLY Schema (not mongoose.model)
 module.exports = PayslipSchema;
-

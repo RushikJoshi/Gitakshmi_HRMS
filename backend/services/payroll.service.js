@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 /**
  * Payroll Service
  * Core payroll calculation engine
@@ -289,6 +290,20 @@ async function calculateEmployeePayroll(
     };
 
     const payslip = new Payslip(payslipData);
+
+    // Manually generate hash to avoid pre-validate hook issues
+    if (!payslip.hash) {
+        const crypto = require('crypto');
+        const hashData = JSON.stringify({
+            grossEarnings: payslip.grossEarnings || 0,
+            preTaxDeductionsTotal: payslip.preTaxDeductionsTotal || 0,
+            taxableIncome: payslip.taxableIncome || 0,
+            incomeTax: payslip.incomeTax || 0,
+            postTaxDeductionsTotal: payslip.postTaxDeductionsTotal || 0,
+            netPay: payslip.netPay || 0
+        });
+        payslip.hash = crypto.createHash('sha256').update(hashData).digest('hex');
+    }
 
     if (!dryRun) {
         await payslip.save();

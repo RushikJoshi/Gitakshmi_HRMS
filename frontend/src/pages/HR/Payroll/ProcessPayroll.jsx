@@ -20,6 +20,7 @@ const ProcessPayroll = () => {
     const [payrollResult, setPayrollResult] = useState(null);
     const [showPayslipsModal, setShowPayslipsModal] = useState(false);
     const [allPreviews, setAllPreviews] = useState([]);
+    const [messageApi, contextHolder] = message.useMessage();
 
     // Fetch Templates on Mount
     useEffect(() => {
@@ -48,7 +49,7 @@ const ProcessPayroll = () => {
                 selectedTemplateId: e.salaryTemplateId
             })));
         } catch (err) {
-            message.error(err.response?.data?.message || "Failed to fetch employees");
+            messageApi.error(err.response?.data?.message || "Failed to fetch employees");
         } finally {
             setLoading(false);
         }
@@ -110,6 +111,17 @@ const ProcessPayroll = () => {
         
         console.log(selectedEmployees);
         
+        const itemsToPreview = employees
+            .filter(e => selectedRowKeys.includes(e._id))
+            .filter(e => e.selectedTemplateId) // Only those with templates
+            .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
+
+        if (itemsToPreview.length === 0) {
+            messageApi.warning("Select employees with templates assigned to preview");
+            return;
+        }
+
+        setCalculating(true);
         try {
 
             const res = await axios.post('/payroll/process/calculateNetPreview', {
@@ -128,6 +140,7 @@ const ProcessPayroll = () => {
         } catch (err) {
             console.error('Calculation Error:', err);
             message.error(err.response?.data?.message || "Calculation failed");
+            messageApi.success("Calculated successfully");
         } finally {
             setCalculating(false);
         }
@@ -149,6 +162,11 @@ const ProcessPayroll = () => {
             setDetailDrawer({ visible: true, empId: emp._id });
         } catch (err) {
             message.error('Failed to fetch preview');
+            messageApi.success("Payroll processed successfully!");
+            // Maybe redirect to dashboard or results?
+            fetchEmployees(); // Refresh status
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -220,6 +238,23 @@ const ProcessPayroll = () => {
             )
         },
         {
+            title: 'Salary Template',
+            key: 'template',
+            render: (_, record) => (
+                <Select
+                    className="w-48"
+                    placeholder="Select Template"
+                    value={record.selectedTemplateId}
+                    onChange={(val) => handleTemplateChange(record._id, val)}
+                    status={!record.selectedTemplateId ? 'error' : ''}
+                    options={templates.map(t => ({
+                        value: t._id,
+                        label: `${t.templateName} (₹${t.annualCTC?.toLocaleString()})`
+                    }))}
+                />
+            )
+        },
+        {
             title: 'Preview (Net Pay)',
             key: 'preview',
             width: 250,
@@ -277,13 +312,16 @@ const ProcessPayroll = () => {
         }
     ];
 
-    const rowSelection = {
+    const rowSelection = React.useMemo(() => ({
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
-    };
+    }), [selectedRowKeys]);
+
+    const memoColumns = React.useMemo(() => columns, [templates, previews]);
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
+            {contextHolder}
             <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -337,8 +375,9 @@ const ProcessPayroll = () => {
 
                 <Table
                     rowSelection={rowSelection}
-                    columns={columns}
+                    columns={memoColumns}
                     dataSource={employees}
+                    rowKey="_id"
                     loading={loading}
                     pagination={{ pageSize: 50 }}
                     size="middle"

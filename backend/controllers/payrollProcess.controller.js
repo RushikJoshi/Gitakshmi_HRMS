@@ -32,7 +32,7 @@ exports.getProcessEmployees = async (req, res) => {
         const employees = await Employee.find({
             status: 'Active',
             joiningDate: { $lte: endDate }
-        }).select('firstName lastName employeeId department designations email joiningDate');
+        }).select('firstName lastName employeeId department role email joiningDate');
 
         // Fetch Assignments for all employees to determine current template
         // We use the same logic as service: latest assignment <= endDate
@@ -142,27 +142,42 @@ exports.previewPreview = async (req, res) => {
 exports.runPayroll = async (req, res) => {
     try {
         const { month, items } = req.body;
+        console.log(`🚀 [RUN_PAYROLL] Month: ${month}, Items: ${items?.length}`);
         const [year, monthNum] = month.split('-');
 
         const { PayrollRun, Employee, PayrollRunItem, SalaryAssignment } = getModels(req);
 
         // 1. Check duplicate run
-        const existingRun = await PayrollRun.findOne({ month: parseInt(monthNum), year: parseInt(year) });
-        if (existingRun && existingRun.status !== 'Cancelled') {
-            return res.status(400).json({ success: false, message: "Payroll for this month already exists" });
-        }
+        let payrollRun = await PayrollRun.findOne({ month: parseInt(monthNum), year: parseInt(year) });
 
-        // 2. Create Payroll Run Holder
-        const payrollRun = new PayrollRun({
-            tenantId: req.user.tenantId,
-            tenant: req.user.tenantId, // Ensure consistency
-            month: parseInt(monthNum),
-            year: parseInt(year),
-            status: 'PROCESSING',
-            runDate: new Date(),
-            totalEmployees: items.length,
-            processedEmployees: 0
-        });
+        if (payrollRun) {
+            if (['APPROVED', 'PAID'].includes(payrollRun.status)) {
+                return res.status(400).json({ success: false, message: "Payroll for this month is already approved or paid" });
+            }
+            // If exists but not finalized, we reset it
+            console.log(`♻️ [RUN_PAYROLL] Resetting existing run: ${payrollRun._id}`);
+            payrollRun.status = 'INITIATED';
+            payrollRun.initiatedBy = req.user.id || req.user._id;
+            payrollRun.totalEmployees = items.length;
+            payrollRun.processedEmployees = 0;
+            payrollRun.failedEmployees = 0;
+            payrollRun.totalGross = 0;
+            payrollRun.totalNetPay = 0;
+            payrollRun.executionErrors = [];
+            // Delete existing items for this run to start fresh
+            await PayrollRunItem.deleteMany({ payrollRunId: payrollRun._id });
+        } else {
+            // 2. Create Payroll Run Holder
+            payrollRun = new PayrollRun({
+                tenantId: req.user.tenantId,
+                month: parseInt(monthNum),
+                year: parseInt(year),
+                status: 'INITIATED',
+                initiatedBy: req.user.id || req.user._id,
+                totalEmployees: items.length,
+                processedEmployees: 0
+            });
+        }
         await payrollRun.save();
 
         const startDate = new Date(year, monthNum - 1, 1);
@@ -197,7 +212,8 @@ exports.runPayroll = async (req, res) => {
                     continue;
                 }
 
-                // Call Service with DRY RUN to validate calculations first
+                console.log(`🔍 [RUN_PAYROLL] Processing emp: ${emp._id}`);
+                // Call Service to calculate and save payslip
                 const payslip = await payrollService.calculateEmployeePayroll(
                     req.tenantDB,
                     req.user.tenantId,
@@ -207,19 +223,21 @@ exports.runPayroll = async (req, res) => {
                     startDate,
                     endDate,
                     endDate.getDate(),
-                    new Set(),
-                    payrollRun._id, // Pass ID for potential generation
+                    new Set(), // No holidays for simple run
+                    payrollRun._id,
                     item.salaryTemplateId,
-                    true // dryRun = true (Don't save yet)
+                    false // dryRun = false (SAVE the payslip)
                 );
+
+                console.log(`📊 [RUN_PAYROLL] Attendance for ${emp.firstName}: Present ${payslip.attendanceSummary?.presentDays}, Holidays ${payslip.attendanceSummary?.holidayDays}`);
 
                 // Validation 2: Zero Payable Days
                 // Payable = presentDays + holidayDays + (leaveDays if paid)
-                // Service logic suggests leaveDays are paid
-                const { presentDays, holidayDays, leaveDays } = payslip.attendanceSummary;
+                const { presentDays = 0, holidayDays = 0, leaveDays = 0 } = payslip.attendanceSummary || {};
                 const payableDays = (presentDays || 0) + (holidayDays || 0) + (leaveDays || 0);
 
                 if (payableDays <= 0) {
+                    console.warn(`⚠️ [RUN_PAYROLL] Skipping ${emp.firstName} - no payable attendance (Payable: ${payableDays})`);
                     skippedList.push({
                         employeeId: item.employeeId,
                         reason: "NO_PAYABLE_ATTENDANCE"
@@ -227,15 +245,20 @@ exports.runPayroll = async (req, res) => {
                     continue; // Skip this employee
                 }
 
-                // If Valid: Save Payslip and Run Item
-                await payslip.save();
+                console.log(`✅ [RUN_PAYROLL] Payslip already saved by service: ${payslip._id}`);
 
                 await PayrollRunItem.create({
                     tenantId: req.user.tenantId,
                     payrollRunId: payrollRun._id,
                     employeeId: emp._id,
                     salaryTemplateId: item.salaryTemplateId,
-                    attendanceSummary: payslip.attendanceSummary,
+                    attendanceSummary: {
+                        totalDays: payslip.attendanceSummary.totalDays,
+                        daysPresent: payslip.attendanceSummary.presentDays,
+                        daysAbsent: (payslip.attendanceSummary.totalDays - payslip.attendanceSummary.presentDays - payslip.attendanceSummary.holidayDays - payslip.attendanceSummary.leaveDays),
+                        leaves: payslip.attendanceSummary.leaveDays,
+                        holidays: payslip.attendanceSummary.holidayDays
+                    },
                     calculatedGross: payslip.grossEarnings,
                     calculatedNet: payslip.netPay,
                     status: 'Processed'
@@ -245,6 +268,7 @@ exports.runPayroll = async (req, res) => {
                 processedList.push(emp._id);
                 totalGross += payslip.grossEarnings;
                 totalNet += payslip.netPay;
+                console.log(`✅ [RUN_PAYROLL] Processed ${emp.firstName} ${emp.lastName}: Gross ${payslip.grossEarnings}, Net ${payslip.netPay}`);
 
             } catch (err) {
                 // Handle specific service errors gracefully
@@ -254,19 +278,29 @@ exports.runPayroll = async (req, res) => {
                         reason: "SALARY_TEMPLATE_MISSING"
                     });
                 } else {
-                    console.error(`Failed to process ${item.employeeId}`, err);
+                    console.error(`❌ [RUN_PAYROLL] Failed to process ${item.employeeId}:`, err);
                     failCount++;
                     // Log fail but don't crash whole run
-                    await PayrollRunItem.create({
-                        tenantId: req.user.tenantId,
-                        payrollRunId: payrollRun._id,
+                    payrollRun.executionErrors.push({
                         employeeId: item.employeeId,
-                        salaryTemplateId: item.salaryTemplateId,
-                        attendanceSummary: {},
-                        calculatedGross: 0,
-                        calculatedNet: 0,
-                        status: 'Failed'
+                        message: err.message || "Unknown error",
+                        stack: err.stack
                     });
+
+                    try {
+                        await PayrollRunItem.create({
+                            tenantId: req.user.tenantId,
+                            payrollRunId: payrollRun._id,
+                            employeeId: item.employeeId,
+                            salaryTemplateId: item.salaryTemplateId,
+                            attendanceSummary: {},
+                            calculatedGross: 0,
+                            calculatedNet: 0,
+                            status: 'Failed'
+                        });
+                    } catch (innerErr) {
+                        console.error("Critical fail saving failure item:", innerErr);
+                    }
                 }
             }
         }
@@ -277,9 +311,16 @@ exports.runPayroll = async (req, res) => {
         payrollRun.failedEmployees = failCount;
         payrollRun.totalGross = totalGross;
         payrollRun.totalNetPay = totalNet;
+        payrollRun.totalDeductions = totalGross - totalNet;
         await payrollRun.save();
 
+<<<<<<< Updated upstream
         // Respond with Complete Summary
+=======
+        console.log(`✅ [RUN_PAYROLL] SUCCESS: processed ${successCount}, skipped ${skippedList.length}`);
+
+        // Respond with Summary (200 OK)
+>>>>>>> Stashed changes
         res.json({
             success: true,
             data: {
