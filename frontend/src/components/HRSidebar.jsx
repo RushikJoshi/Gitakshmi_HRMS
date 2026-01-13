@@ -132,7 +132,14 @@ const NAV_GROUPS = [
   {
     title: 'Hiring',
     items: [
-      { to: '/hr/requirements', label: 'Requirements', icon: ICONS.requirements },
+      {
+        label: 'Requirements',
+        icon: ICONS.requirements,
+        children: [
+          { to: '/hr/requirements', label: 'Job List' },
+          { to: '/hr/create-requirement', label: 'Create Requirement' }
+        ]
+      },
       { to: '/hr/applicants', label: 'Applicants', icon: ICONS.applicants },
       { to: '/hr/candidate-status', label: 'Candidate Status Tracker', icon: ICONS.tracker }
     ]
@@ -179,7 +186,7 @@ export default function HRSidebar({ collapsed = false, toggleCollapse, onNavigat
         {!collapsed && (
           <div>
             <div className="font-bold text-lg text-blue-400">Company Admin</div>
-            <div className="text-xs text-slate-500">Human Resources</div>
+            <div className="text-xs text-slate-500">HR Platform</div>
           </div>
         )}
         {toggleCollapse && (

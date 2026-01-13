@@ -47,6 +47,7 @@ import LetterTemplates from '../pages/HR/LetterTemplates';
 import LetterSettings from '../pages/HR/LetterSettings';
 import TemplatePreview from '../pages/HR/TemplatePreview';
 import SalaryStructure from '../pages/HR/SalaryStructure';
+import CreateRequirement from '../pages/HR/CreateRequirement';
 
 // Payroll
 import SalaryComponents from '../pages/HR/Payroll/SalaryComponents';
@@ -129,6 +130,7 @@ export default function AppRoutes() {
         <Route path="attendance-calendar" element={<CalendarManagement />} />
         <Route path="leave-policies" element={<LeavePolicies />} />
         <Route path="requirements" element={<RequirementPage />} />
+        <Route path="create-requirement" element={<CreateRequirement />} />
         <Route path="applicants" element={<Applicants />} />
         <Route path="candidate-status" element={<CandidateStatusTracker />} />
         <Route path="candidate-status/:id" element={<CandidateTimeline />} />

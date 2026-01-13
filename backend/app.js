@@ -175,11 +175,82 @@ app.get('/api/health', (_req, res) => {
 /* ===============================
    ERROR HANDLING
 ================================ */
-const errorMiddleware = require('./middleware/error.middleware');
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI;
 
-app.use((err, req, res, next) => {
-    next(err);
-});
-app.use(errorMiddleware);
+if (!MONGO_URI) {
+  console.error('MONGO_URI not set');
+  process.exit(1);
+}
 
-module.exports = app;
+mongoose
+  .connect(MONGO_URI, {
+    maxPoolSize: 10,
+    minPoolSize: 5,
+    socketTimeoutMS: 45000,
+    connectTimeoutMS: 10000,
+    retryWrites: true,
+    family: 4
+  })
+  .then(async () => {
+    console.log('âœ… MongoDB connected');
+
+    // Register models for main DB (for super admin fallback)
+    mongoose.model('Notification', require('./models/Notification'));
+    mongoose.model('LeaveRequest', require('./models/LeaveRequest'));
+    mongoose.model('Regularization', require('./models/Regularization'));
+    mongoose.model('Applicant', require('./models/Applicant'));
+    mongoose.model('Requirement', require('./models/Requirement'));
+    mongoose.model('Candidate', require('./models/Candidate'));
+    mongoose.model('Interview', require('./models/Interview'));
+    mongoose.model('TrackerCandidate', require('./models/TrackerCandidate'));
+    mongoose.model('CandidateStatusLog', require('./models/CandidateStatusLog'));
+
+    const server = app.listen(PORT, async () => {
+      console.log(`✅ Server running on port ${PORT}`);
+
+      const useNgrok =
+        String(process.env.USE_NGROK || '').toLowerCase() === 'true' &&
+        process.env.NODE_ENV !== 'production';
+
+      if (useNgrok && ngrok) {
+        try {
+          if (process.env.NGROK_AUTHTOKEN) {
+            await ngrok.authtoken(process.env.NGROK_AUTHTOKEN);
+          }
+          const url = await ngrok.connect({ addr: PORT });
+          process.env.NGROK_URL = url;
+          console.log('🌍 NGROK URL:', url);
+        } catch (e) {
+          console.warn('ngrok failed:', e.message);
+        }
+      }
+
+      console.log('✅ Server fully initialized');
+    });
+
+    // Handle Port In Use Error
+    server.on('error', (e) => {
+      if (e.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use!`);
+        console.error(`👉 Try running: npx kill-port ${PORT}`);
+        process.exit(1);
+      }
+    });
+
+    // Graceful Shutdown for Nodemon
+    const gracefulShutdown = () => {
+      console.log('🔄 Server restarting/stopping...');
+      server.close(() => {
+        console.log('🛑 Server closed.');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
+  })
+  .catch((err) => {
+    console.error('âŒ MongoDB connection failed:', err);
+    process.exit(1);
+  });
