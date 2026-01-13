@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 /**
  * Payroll Service
  * Core payroll calculation engine
@@ -8,6 +9,8 @@
  * 3. Past payslips are never recalculated
  * 4. Follows mandatory calculation order
  */
+
+const tdsService = require('./tds.service');
 
 /**
  * Run payroll for a specific month/year
@@ -218,12 +221,13 @@ async function calculateEmployeePayroll(
     );
 
     // STEP 3: Calculate Taxable Income
-    const taxableIncome = grossCalculation.totalGross - preTaxDeductions.total;
+    // Use only components marked `taxable` when computing taxable income
+    const taxableIncome = (grossCalculation.taxableGross || grossCalculation.totalGross) - preTaxDeductions.total;
 
     // STEP 4: Calculate Income Tax (TDS)
-    // TODO: Implement proper TDS calculation based on tax regime
-    // For now, using a placeholder
-    const incomeTax = calculateTDS(taxableIncome, employee);
+    // Use the TDS service to compute monthly TDS based on annualized taxable income
+    const tdsResult = await tdsService.calculateMonthlyTDS(taxableIncome, employee, { tenantId, month, year });
+    const incomeTax = tdsResult.monthly;
 
     // STEP 5: Calculate Post-Tax Deductions
     const postTaxDeductions = await calculatePostTaxDeductions(
@@ -271,6 +275,7 @@ async function calculateEmployeePayroll(
         preTaxDeductionsTotal: preTaxDeductions.total,
         taxableIncome,
         incomeTax,
+        tdsSnapshot: tdsResult,
         postTaxDeductionsTotal: postTaxDeductions.total,
         netPay,
         attendanceSummary,
@@ -284,6 +289,20 @@ async function calculateEmployeePayroll(
     };
 
     const payslip = new Payslip(payslipData);
+
+    // Manually generate hash to avoid pre-validate hook issues
+    if (!payslip.hash) {
+        const crypto = require('crypto');
+        const hashData = JSON.stringify({
+            grossEarnings: payslip.grossEarnings || 0,
+            preTaxDeductionsTotal: payslip.preTaxDeductionsTotal || 0,
+            taxableIncome: payslip.taxableIncome || 0,
+            incomeTax: payslip.incomeTax || 0,
+            postTaxDeductionsTotal: payslip.postTaxDeductionsTotal || 0,
+            netPay: payslip.netPay || 0
+        });
+        payslip.hash = crypto.createHash('sha256').update(hashData).digest('hex');
+    }
 
     if (!dryRun) {
         await payslip.save();
@@ -341,6 +360,7 @@ function calculateGrossEarnings(earnings, daysInMonth, presentDays, lopDays) {
     const earningsSnapshot = [];
     let totalGross = 0;
     let basicAmount = 0;
+    let taxableGross = 0;
 
     earnings.forEach(earning => {
         let amount = earning.monthlyAmount || 0;
@@ -354,9 +374,9 @@ function calculateGrossEarnings(earnings, daysInMonth, presentDays, lopDays) {
         // For now, we'll apply pro-rata based on present days
         // TODO: Add flag to earnings template to indicate which components should be pro-rated
 
-        // Basic salary is typically pro-rated
-        if (earning.name.toLowerCase().includes('basic')) {
-            basicAmount = amount;
+        // Determine pro-rata behaviour: explicit flag overrides legacy logic
+        if (earning.proRata === true || (earning.proRata === undefined && earning.name.toLowerCase().includes('basic'))) {
+            basicAmount = basicAmount || (earning.name.toLowerCase().includes('basic') ? originalAmount : basicAmount);
             // Pro-rata calculation: (amount / daysInMonth) * presentDays
             amount = Math.round((amount / daysInMonth) * presentDays * 100) / 100;
             isProRata = true;
@@ -372,11 +392,15 @@ function calculateGrossEarnings(earnings, daysInMonth, presentDays, lopDays) {
         });
 
         totalGross += amount;
+        // Accumulate taxable gross only for components marked taxable (default true)
+        const isTaxable = earning.taxable === false ? false : true;
+        if (isTaxable) taxableGross += amount;
     });
 
     return {
         earningsSnapshot,
         totalGross: Math.round(totalGross * 100) / 100,
+        taxableGross: Math.round(taxableGross * 100) / 100,
         basicAmount
     };
 }
@@ -481,28 +505,7 @@ async function calculatePreTaxDeductions(db, tenantId, employeeId, grossEarnings
  * - Annual income projection
  * - Investments and deductions
  * - Tax slabs
- */
-function calculateTDS(taxableIncome, employee) {
-    // Placeholder: Simple tax calculation
-    // In production, this should use proper tax calculation service
-    // For now, returning 0 or a basic calculation
-
-    // Annual taxable income projection
-    const annualTaxableIncome = taxableIncome * 12;
-
-    // Basic tax calculation (Old Regime - simplified)
-    let tax = 0;
-    if (annualTaxableIncome > 500000) {
-        tax = ((annualTaxableIncome - 500000) * 0.20) + 12500;
-    } else if (annualTaxableIncome > 250000) {
-        tax = (annualTaxableIncome - 250000) * 0.05;
-    }
-
-    // Monthly TDS
-    const monthlyTDS = Math.round((tax / 12) * 100) / 100;
-
-    return monthlyTDS;
-}
+*/
 
 /**
  * Calculate Post-Tax Deductions (Loans, LOP, Advances, Penalties)
@@ -588,6 +591,7 @@ async function calculatePostTaxDeductions(
 
 module.exports = {
     runPayroll,
+    // Exported for controllers to perform previews and single-employee calculations
     calculateEmployeePayroll
 };
 

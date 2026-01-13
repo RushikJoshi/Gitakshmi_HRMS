@@ -24,6 +24,9 @@ const SalaryTemplateSchema = new mongoose.Schema({
         percentage: { type: Number, default: 0 }, // percentage value
         monthlyAmount: { type: Number, required: true },
         annualAmount: { type: Number, required: true },
+        // Optional flags to control payroll behavior per component
+        proRata: { type: Boolean }, // if true, component will be pro-rated based on present days. If undefined, legacy logic applies (basic is pro-rated)
+        taxable: { type: Boolean, default: true }, // whether this earning is part of taxable income
         isRemovable: { type: Boolean, default: true },
         enabled: { type: Boolean, default: true }
     }],

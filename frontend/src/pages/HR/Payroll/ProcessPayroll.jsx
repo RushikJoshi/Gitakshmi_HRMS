@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Table, message, Select, Checkbox, Button, DatePicker, Tag, Tooltip } from 'antd';
-import { PlayCircle, Calculator, FileText, AlertCircle, IndianRupee, Calendar } from 'lucide-react';
+import { Table, message, Select, Checkbox, Button, DatePicker, Tag, Tooltip, Drawer, Statistic, Row, Col, Space, Modal, Descriptions, Avatar, Progress, Card, Divider, Empty, Spin, Popconfirm } from 'antd';
+import { PlayCircle, Calculator, FileText, AlertCircle, IndianRupee, Calendar, Eye, CheckCircle, Download, FileJson, AlertTriangle, Zap } from 'lucide-react';
 import api from '../../../utils/api';
 import dayjs from 'dayjs';
 
@@ -14,6 +14,15 @@ const ProcessPayroll = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [calculating, setCalculating] = useState(false);
     const [previews, setPreviews] = useState({}); // { empId: { gross, net, error } }
+
+    // Merged States
+    const [detailDrawer, setDetailDrawer] = useState({ visible: false, empId: null });
+    const [detailData, setDetailData] = useState(null);
+    const [payrollRunning, setPayrollRunning] = useState(false);
+    const [payrollResult, setPayrollResult] = useState(null);
+
+    // Toast
+    const [messageApi, contextHolder] = message.useMessage();
 
     // Fetch Templates on Mount
     useEffect(() => {
@@ -42,7 +51,7 @@ const ProcessPayroll = () => {
                 selectedTemplateId: e.salaryTemplateId
             })));
         } catch (err) {
-            message.error(err.response?.data?.message || "Failed to fetch employees");
+            messageApi.error(err.response?.data?.message || "Failed to fetch employees");
         } finally {
             setLoading(false);
         }
@@ -50,9 +59,6 @@ const ProcessPayroll = () => {
 
     const handleTemplateChange = (empId, val) => {
         setEmployees(prev => prev.map(e => e._id === empId ? { ...e, selectedTemplateId: val } : e));
-        // Trigger preview recalculation for this employee? 
-        // We can do it in bulk or single. Let's do single immediately or user clicks "Preview"
-        // Let's clear preview for this employee to indicate stale data
         setPreviews(prev => {
             const next = { ...prev };
             delete next[empId];
@@ -67,7 +73,7 @@ const ProcessPayroll = () => {
             .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
 
         if (itemsToPreview.length === 0) {
-            message.warning("Select employees with templates assigned to preview");
+            messageApi.warning("Select employees with templates assigned to preview");
             return;
         }
 
@@ -78,16 +84,40 @@ const ProcessPayroll = () => {
                 items: itemsToPreview
             });
 
+            console.log('Preview Response:', res.data.data);
+
             const newPreviews = {};
             res.data.data.forEach(p => {
                 newPreviews[p.employeeId] = p;
             });
             setPreviews(newPreviews);
-            message.success("Calculated successfully");
+            messageApi.success(`Calculated successfully for ${itemsToPreview.length} employee(s)`);
         } catch (err) {
-            message.error("Calculation failed");
+            console.error('Calculation Error:', err);
+            messageApi.error(err.response?.data?.message || "Calculation failed");
         } finally {
             setCalculating(false);
+        }
+    };
+
+    const fetchPreviewForEmployee = async (emp) => {
+        if (!emp.selectedTemplateId) {
+            messageApi.warning('Select a template for this employee first');
+            return;
+        }
+
+        try {
+            const res = await api.post('/payroll/process/preview', {
+                month: month.format('YYYY-MM'),
+                items: [{ employeeId: emp._id, salaryTemplateId: emp.selectedTemplateId }]
+            });
+
+            const p = res.data.data && res.data.data[0];
+            setPreviews(prev => ({ ...prev, [emp._id]: p }));
+            setDetailData(p);
+            setDetailDrawer({ visible: true, empId: emp._id });
+        } catch (err) {
+            messageApi.error('Failed to fetch preview');
         }
     };
 
@@ -95,28 +125,41 @@ const ProcessPayroll = () => {
         const itemsToProcess = employees
             .filter(e => selectedRowKeys.includes(e._id))
             .filter(e => e.selectedTemplateId)
-            .map(e => ({ employeeId: e._id, salaryTemplateId: e.selectedTemplateId }));
+            .map(e => ({
+                employeeId: e._id,
+                salaryTemplateId: e.selectedTemplateId
+            }));
 
         if (itemsToProcess.length === 0) {
-            message.error("No valid employees selected");
+            messageApi.error("No valid employees selected");
             return;
         }
 
-        if (!window.confirm(`Are you sure you want to run payroll for ${itemsToProcess.length} employees?`)) return;
+        if (!window.confirm(
+            `Are you sure you want to process payroll for ${itemsToProcess.length} employees for ${month.format('MMMM YYYY')}?`
+        )) return;
 
-        setLoading(true);
+        setPayrollRunning(true);
         try {
-            const res = await api.post('/payroll/process/run', {
+            const response = await api.post('/payroll/process/run', {
                 month: month.format('YYYY-MM'),
                 items: itemsToProcess
             });
-            message.success("Payroll processed successfully!");
-            // Maybe redirect to dashboard or results?
-            fetchEmployees(); // Refresh status
+
+            const result = response.data.data;
+            setPayrollResult(result);
+            setSelectedRowKeys([]);
+            setPreviews({});
+
+            messageApi.success(`Payroll processed successfully! ${result.processedEmployees} employees processed.`);
+
+            // Refresh employee list
+            await fetchEmployees();
         } catch (err) {
-            message.error(err.response?.data?.message || "Run failed");
+            messageApi.error(err.response?.data?.message || "Payroll run failed");
+            console.error("Payroll error:", err);
         } finally {
-            setLoading(false);
+            setPayrollRunning(false);
         }
     };
 
@@ -126,9 +169,12 @@ const ProcessPayroll = () => {
             dataIndex: 'name',
             key: 'name',
             render: (text, record) => (
-                <div>
-                    <div className="font-medium text-slate-800">{text}</div>
-                    <div className="text-xs text-slate-500">{record.department}</div>
+                <div className="flex items-center gap-3">
+                    <Avatar size={36} style={{ backgroundColor: '#f0f2f5' }}>{(record.firstName || record.name || '').charAt(0)}</Avatar>
+                    <div>
+                        <div className="font-medium text-slate-800">{text}</div>
+                        <div className="text-xs text-slate-500">{record.department} • {record.employeeId || ''}</div>
+                    </div>
                 </div>
             )
         },
@@ -152,21 +198,58 @@ const ProcessPayroll = () => {
                     value={record.selectedTemplateId}
                     onChange={(val) => handleTemplateChange(record._id, val)}
                     status={!record.selectedTemplateId ? 'error' : ''}
-                >
-                    {templates.map(t => (
-                        <Option key={t._id} value={t._id}>{t.name} ({t.annualCTC})</Option>
-                    ))}
-                </Select>
+                    options={templates.map(t => ({
+                        value: t._id,
+                        label: `${t.templateName} (₹${t.annualCTC?.toLocaleString()})`
+                    }))}
+                />
             )
         },
         {
             title: 'Preview (Net Pay)',
             key: 'preview',
+            width: 250,
             render: (_, record) => {
                 const prev = previews[record._id];
-                if (!prev) return <span className="text-slate-400 italic">--</span>;
-                if (prev.error) return <Tooltip title={prev.error}><AlertCircle className="w-4 h-4 text-red-500" /></Tooltip>;
-                return <span className="font-mono font-bold text-emerald-700">₹{prev.net?.toLocaleString()}</span>;
+                if (!prev) {
+                    return (
+                        <Tooltip title="Select this employee and click 'Calculate Preview' to see salary details">
+                            <span className="text-slate-400 italic text-xs">--</span>
+                        </Tooltip>
+                    );
+                }
+                if (prev.error) return (
+                    <Tooltip title={prev.error}>
+                        <div className="flex items-center gap-1">
+                            <AlertCircle className="w-4 h-4 text-red-500" />
+                            <span className="text-xs text-red-600">Error</span>
+                        </div>
+                    </Tooltip>
+                );
+                return (
+                    <div className="space-y-1 bg-emerald-50 p-2 rounded">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-600 font-medium">Basic:</span>
+                            <span className="font-mono font-semibold text-slate-800">₹{Math.round(prev.gross || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-600 font-medium">Net Pay:</span>
+                            <span className="font-mono font-bold text-emerald-700">₹{Math.round(prev.net || 0).toLocaleString()}</span>
+                        </div>
+                        <Button
+                            size="small"
+                            type="text"
+                            onClick={() => {
+                                setDetailData(prev);
+                                setDetailDrawer({ visible: true, empId: record._id });
+                            }}
+                            icon={<Eye size={14} />}
+                            className="mt-1 text-blue-600 hover:text-blue-700 h-6"
+                        >
+                            Details
+                        </Button>
+                    </div>
+                );
             }
         },
         {
@@ -174,19 +257,22 @@ const ProcessPayroll = () => {
             key: 'status',
             render: (_, record) => {
                 if (!record.selectedTemplateId) return <Tag color="warning">Missing Template</Tag>;
-                // Could add more status logic here
                 return <Tag color="blue">Ready</Tag>;
             }
         }
     ];
 
-    const rowSelection = {
+    const rowSelection = React.useMemo(() => ({
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
-    };
+    }), [selectedRowKeys]);
+
+    const memoColumns = React.useMemo(() => columns, [templates, previews]);
 
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
+            {contextHolder}
+            {/* Header */}
             <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -207,40 +293,214 @@ const ProcessPayroll = () => {
                 </div>
             </div>
 
+            {/* Main Table Area */}
             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                     <h3 className="font-semibold text-slate-700">Employee List ({employees.length})</h3>
-                    <div className="flex gap-2">
-                        <Button
-                            icon={<IndianRupee size={16} />}
-                            onClick={calculatePreview}
-                            loading={calculating}
-                            disabled={selectedRowKeys.length === 0}
-                        >
-                            Calculate Preview
-                        </Button>
-                        <Button
-                            type="primary"
-                            icon={<PlayCircle size={16} />}
-                            onClick={runPayroll}
-                            loading={loading}
-                            disabled={selectedRowKeys.length === 0}
-                            className="bg-emerald-600 hover:bg-emerald-700"
-                        >
-                            Run Payroll
-                        </Button>
+                    <div className="flex gap-4 items-center">
+                        <Space>
+                            <Button
+                                icon={<IndianRupee size={16} />}
+                                onClick={calculatePreview}
+                                loading={calculating}
+                                disabled={selectedRowKeys.length === 0}
+                            >
+                                Calculate Preview
+                            </Button>
+                            <Button
+                                type="primary"
+                                icon={<PlayCircle size={16} />}
+                                onClick={runPayroll}
+                                loading={payrollRunning}
+                                disabled={selectedRowKeys.length === 0}
+                                className="bg-emerald-600 hover:bg-emerald-700"
+                            >
+                                Run Payroll
+                            </Button>
+                        </Space>
+                        <div className="ml-4 flex items-center gap-3">
+                            <Tag color="blue">Selected: {selectedRowKeys.length}</Tag>
+                            <Tag color="green">Previews: {Object.keys(previews).length}</Tag>
+                        </div>
                     </div>
                 </div>
 
                 <Table
                     rowSelection={rowSelection}
-                    columns={columns}
+                    columns={memoColumns}
                     dataSource={employees}
+                    rowKey="_id"
                     loading={loading}
                     pagination={{ pageSize: 50 }}
                     size="middle"
                 />
             </div>
+
+            {/* Payroll Result Modal */}
+            <Modal
+                title={`Payroll Run Results — ${month.format('MMMM YYYY')}`}
+                open={!!payrollResult}
+                onCancel={() => setPayrollResult(null)}
+                footer={[
+                    <Button key="close" type="primary" onClick={() => setPayrollResult(null)}>
+                        Close
+                    </Button>
+                ]}
+                width={800}
+            >
+                {payrollResult && (
+                    <div className="space-y-6">
+                        <Row gutter={24}>
+                            <Col span={8}>
+                                <Card className="text-center">
+                                    <Statistic
+                                        title="Total Employees"
+                                        value={payrollResult.totalEmployees || 0}
+                                        prefix={<Calculator size={16} />}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col span={8}>
+                                <Card className="text-center">
+                                    <Statistic
+                                        title="Processed"
+                                        value={payrollResult.processedEmployees || 0}
+                                        suffix={<CheckCircle size={16} className="text-green-600" />}
+                                        valueStyle={{ color: '#52c41a' }}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col span={8}>
+                                <Card className="text-center">
+                                    <Statistic
+                                        title="Failed"
+                                        value={payrollResult.failedEmployees || 0}
+                                        suffix={payrollResult.failedEmployees > 0 ? <AlertTriangle size={16} className="text-red-600" /> : ''}
+                                        valueStyle={{ color: payrollResult.failedEmployees > 0 ? '#ff4d4f' : '#1890ff' }}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+
+                        <Divider />
+
+                        <Row gutter={24}>
+                            <Col span={12}>
+                                <Card>
+                                    <Statistic
+                                        title="Total Gross Earnings"
+                                        value={Math.round(payrollResult.totalGross || 0)}
+                                        prefix="₹"
+                                        valueStyle={{ color: '#1890ff' }}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col span={12}>
+                                <Card>
+                                    <Statistic
+                                        title="Total Net Payable"
+                                        value={Math.round(payrollResult.totalNetPay || 0)}
+                                        prefix="₹"
+                                        valueStyle={{ color: '#52c41a' }}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+
+                        {payrollResult.errors && payrollResult.errors.length > 0 && (
+                            <>
+                                <Divider />
+                                <Card className="bg-red-50 border-red-300">
+                                    <h4 className="font-semibold text-red-800 mb-3">Processing Errors</h4>
+                                    <div className="space-y-2">
+                                        {payrollResult.errors.map((err, idx) => (
+                                            <div key={idx} className="text-sm text-red-700 bg-red-100 p-2 rounded">
+                                                <strong>Employee:</strong> {err.employeeId} — {err.message}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            </>
+                        )}
+                    </div>
+                )}
+            </Modal>
+
+            {/* Payslip Preview Drawer */}
+            <Drawer
+                width={720}
+                title={detailData ? `Payslip Preview — ${detailData.employeeInfo?.employeeId || ''}` : 'Payslip Preview'}
+                placement="right"
+                onClose={() => { setDetailDrawer({ visible: false, empId: null }); setDetailData(null); }}
+                open={detailDrawer.visible}
+            >
+                {detailData ? (
+                    <Spin spinning={false} className="space-y-6">
+                        <div>
+                            <h4 className="font-semibold text-lg mb-3">Employee Details</h4>
+                            <Descriptions bordered column={1} size="small">
+                                <Descriptions.Item label="Employee ID">{detailData.employeeInfo?.employeeId || '--'}</Descriptions.Item>
+                                <Descriptions.Item label="Name">{detailData.employeeInfo?.name || '--'}</Descriptions.Item>
+                                <Descriptions.Item label="Department">{detailData.employeeInfo?.department || '--'}</Descriptions.Item>
+                                <Descriptions.Item label="Designation">{detailData.employeeInfo?.designation || '--'}</Descriptions.Item>
+                            </Descriptions>
+                        </div>
+                        <Divider />
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Card className="text-center">
+                                    <Statistic title="Gross Earnings" value={Math.round(detailData.grossEarnings || 0)} prefix="₹" valueStyle={{ color: '#1890ff' }} />
+                                </Card>
+                            </Col>
+                            <Col span={12}>
+                                <Card className="text-center">
+                                    <Statistic title="Net Pay" value={Math.round(detailData.netPay || 0)} prefix="₹" valueStyle={{ color: '#52c41a' }} />
+                                </Card>
+                            </Col>
+                        </Row>
+                        <div>
+                            <h4 className="font-semibold mb-3">Earnings</h4>
+                            {detailData.earningsSnapshot && detailData.earningsSnapshot.length > 0 ? (
+                                <Table size="small" dataSource={detailData.earningsSnapshot} pagination={false} rowKey={(r, i) => `${r.name}-${i}`} columns={[{ title: 'Component', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No earnings data" />}
+                        </div>
+                        <div>
+                            <h4 className="font-semibold mb-3">Pre-Tax Deductions</h4>
+                            {detailData.preTaxDeductionsSnapshot && detailData.preTaxDeductionsSnapshot.length > 0 ? (
+                                <Table size="small" dataSource={detailData.preTaxDeductionsSnapshot} pagination={false} rowKey={(r, i) => `pre-${r.name || i}`} columns={[{ title: 'Name', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No pre-tax deductions" />}
+                        </div>
+                        <div>
+                            <h4 className="font-semibold mb-3">Taxable Income & Tax</h4>
+                            <Descriptions bordered column={1} size="small">
+                                <Descriptions.Item label="Taxable Income">₹{(detailData.taxableIncome || 0).toLocaleString()}</Descriptions.Item>
+                                <Descriptions.Item label="Income Tax (TDS)">₹{(detailData.incomeTax || 0).toLocaleString()}</Descriptions.Item>
+                            </Descriptions>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold mb-3">Post-Tax Deductions</h4>
+                            {detailData.postTaxDeductionsSnapshot && detailData.postTaxDeductionsSnapshot.length > 0 ? (
+                                <Table size="small" dataSource={detailData.postTaxDeductionsSnapshot} pagination={false} rowKey={(r, i) => `post-${r.name || i}`} columns={[{ title: 'Name', dataIndex: 'name', width: '60%' }, { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }]} />
+                            ) : <Empty description="No post-tax deductions" />}
+                        </div>
+                        {detailData.employerContributionsSnapshot && detailData.employerContributionsSnapshot.length > 0 && (
+                            <div>
+                                <h4 className="font-semibold mb-3">Employer Contributions</h4>
+                                <Table
+                                    size="small"
+                                    dataSource={detailData.employerContributionsSnapshot}
+                                    pagination={false}
+                                    rowKey={(r, i) => `employer-${r.name || i}`}
+                                    columns={[
+                                        { title: 'Name', dataIndex: 'name', width: '60%' },
+                                        { title: 'Amount', dataIndex: 'amount', render: a => `₹${(a || 0).toLocaleString()}`, align: 'right' }
+                                    ]}
+                                />
+                            </div>
+                        )}
+                    </Spin>
+                ) : <Empty description="No preview available" />}
+            </Drawer>
         </div>
     );
 };

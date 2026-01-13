@@ -40,6 +40,7 @@ import AttendanceAdmin from '../pages/HR/AttendanceAdmin';
 import CalendarManagement from '../pages/HR/CalendarManagement';
 import CandidateStatusTracker from '../pages/HR/CandidateStatusTracker';
 import CandidateTimeline from '../pages/HR/CandidateStatusTracker/CandidateTimeline';
+import PaySlipDesign from '../pages/HR/Payroll/PaySlipDesign';
 
 // 🆕 Letter modules (from RIGHT)
 import LetterTemplates from '../pages/HR/LetterTemplates';
@@ -159,6 +160,8 @@ export default function AppRoutes() {
         <Route path="payroll/process" element={<ProcessPayroll />} />
         <Route path="payroll/run" element={<RunPayroll />} />
         <Route path="payroll/payslips" element={<Payslips />} />
+        <Route path="payroll/payslip-design" element={<PaySlipDesign />} />
+
 
         {/* Global */}
         <Route path="details/:entityType/:entityId" element={<EntityDetail />} />

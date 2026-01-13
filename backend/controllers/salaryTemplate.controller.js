@@ -578,45 +578,172 @@ exports.uploadCtcExcel = [
 // Create Template
 exports.createTemplate = async (req, res) => {
     try {
-        const { SalaryTemplate } = getModels(req);
-        const { templateName, description, annualCTC, earnings: earningsInput, employeeDeductions: deductionsInput, settings } = req.body;
+        // 1. Validate inputs first
+        const { templateName, description, annualCTC, earnings: earningsInput, employeeDeductions: deductionsInput, employerDeductions: benefitsInput, settings } = req.body;
 
-        if (!templateName || !annualCTC) {
-            return res.status(400).json({ success: false, error: 'Template name and Annual CTC are required' });
+        if (!templateName || !templateName.trim()) {
+            return res.status(400).json({ success: false, error: 'Template name is required' });
         }
 
-        const tenantId = req.user?.tenantId || req.tenantId;
+        if (!annualCTC || isNaN(annualCTC) || annualCTC <= 0) {
+            return res.status(400).json({ success: false, error: 'Annual CTC must be a positive number' });
+        }
 
-        const calculated = await salaryCalculationService.calculateSalaryStructure(
-            annualCTC,
-            earningsInput,
-            settings || {},
-            deductionsInput,
-            null, // benefitsInput - will be fetched
-            req.tenantDB,
-            tenantId
-        );
+        // 2. Validate tenant context BEFORE processing
+        const tenantId = req.user?.tenantId || req.tenantId;
         if (!tenantId) {
             return res.status(401).json({ success: false, error: 'Unauthorized: Tenant context required' });
         }
 
+        // 3. Validate tenantDB exists
+        if (!req.tenantDB) {
+            return res.status(500).json({ success: false, error: 'Database connection not available' });
+        }
+
+        const { SalaryTemplate } = getModels(req);
+
+        // 4. Auto-generate default earnings if not provided
+        let finalEarnings = earningsInput;
+        if (!Array.isArray(earningsInput) || earningsInput.length === 0) {
+            // Generate default earnings structure: Basic (50%) + Dearness (30%) + Allowance (20%)
+            const monthlyBasic = Number((annualCTC / 12 * 0.5).toFixed(2));
+            const monthlyDearness = Number((annualCTC / 12 * 0.3).toFixed(2));
+            const monthlyAllowance = Number((annualCTC / 12 * 0.2).toFixed(2));
+            
+            finalEarnings = [
+                { 
+                    name: 'Basic', 
+                    monthlyAmount: monthlyBasic,
+                    annualAmount: Number((monthlyBasic * 12).toFixed(2)),
+                    calculationType: 'FIXED',
+                    percentage: 0,
+                    proRata: true, 
+                    taxable: true,
+                    isRemovable: false,
+                    enabled: true
+                },
+                { 
+                    name: 'Dearness Allowance', 
+                    monthlyAmount: monthlyDearness,
+                    annualAmount: Number((monthlyDearness * 12).toFixed(2)),
+                    calculationType: 'FIXED',
+                    percentage: 0,
+                    proRata: true, 
+                    taxable: true,
+                    isRemovable: true,
+                    enabled: true
+                },
+                { 
+                    name: 'Allowance', 
+                    monthlyAmount: monthlyAllowance,
+                    annualAmount: Number((monthlyAllowance * 12).toFixed(2)),
+                    calculationType: 'FIXED',
+                    percentage: 0,
+                    proRata: false, 
+                    taxable: true,
+                    isRemovable: true,
+                    enabled: true
+                }
+            ];
+            console.log(`[CREATE_TEMPLATE] Auto-generated earnings for ${templateName}:`, finalEarnings);
+        } else {
+            // Validate each earning has required fields
+            for (const earning of finalEarnings) {
+                if (!earning.name || earning.monthlyAmount === undefined) {
+                    return res.status(400).json({ success: false, error: 'Each earning must have name and monthlyAmount' });
+                }
+            }
+            // Normalize provided earnings before passing to calculation
+            finalEarnings = finalEarnings.map(earning => {
+                const monthlyAmount = Number(earning.monthlyAmount) || 0;
+                return {
+                    name: String(earning.name).trim(),
+                    monthlyAmount: monthlyAmount,
+                    annualAmount: Number((monthlyAmount * 12).toFixed(2)),
+                    calculationType: earning.calculationType || 'FIXED',
+                    percentage: earning.percentage || 0,
+                    componentCode: earning.componentCode || '',
+                    proRata: earning.proRata === true || (earning.proRata === undefined && earning.name.toLowerCase().includes('basic')),
+                    taxable: earning.taxable !== false,
+                    isRemovable: earning.isRemovable !== false,
+                    enabled: earning.enabled !== false
+                };
+            });
+        }
+
+        // 5. Calculate salary structure
+        let calculated;
+        try {
+            calculated = await salaryCalculationService.calculateSalaryStructure(
+                annualCTC,
+                finalEarnings,
+                settings || {},
+                deductionsInput || [],
+                benefitsInput || [],
+                req.tenantDB,
+                tenantId
+            );
+        } catch (calcError) {
+            console.error('Salary calculation error:', calcError);
+            return res.status(400).json({ success: false, error: `Calculation failed: ${calcError.message}` });
+        }
+
+        if (!calculated || !calculated.earnings) {
+            return res.status(400).json({ success: false, error: 'Salary calculation returned invalid data' });
+        }
+
+        // 6. Ensure calculated earnings have required fields
+        let templateEarnings = Array.isArray(calculated.earnings) ? calculated.earnings : finalEarnings;
+        
+        // Validate and clean earnings - add any missing schema fields
+        if (!Array.isArray(templateEarnings) || templateEarnings.length === 0) {
+            console.warn(`[CREATE_TEMPLATE] No earnings found, using finalEarnings:`, finalEarnings);
+            templateEarnings = finalEarnings;
+        }
+
+        // Ensure calculated earnings also have all required fields
+        templateEarnings = templateEarnings.map(earning => {
+            const monthlyAmount = Number(earning.monthlyAmount) || 0;
+            const annualAmount = Number((monthlyAmount * 12).toFixed(2));
+            return {
+                name: String(earning.name).trim(),
+                monthlyAmount: monthlyAmount,
+                annualAmount: annualAmount,
+                calculationType: earning.calculationType || 'FIXED',
+                percentage: earning.percentage || 0,
+                componentCode: earning.componentCode || '',
+                proRata: earning.proRata === true || (earning.proRata === undefined && earning.name.toLowerCase().includes('basic')),
+                taxable: earning.taxable !== false,
+                isRemovable: earning.isRemovable !== false,
+                enabled: earning.enabled !== false
+            };
+        });
+
+        // 7. Create template
         const template = new SalaryTemplate({
             tenantId: tenantId,
-            templateName,
-            description,
-            annualCTC: calculated.annualCTC,
-            monthlyCTC: calculated.monthlyCTC,
-            earnings: calculated.earnings,
-            employerDeductions: calculated.employerContributions,
-            employeeDeductions: calculated.employeeDeductions,
+            templateName: templateName.trim(),
+            description: description ? description.trim() : '',
+            annualCTC: Number(calculated.annualCTC || annualCTC),
+            monthlyCTC: Number(calculated.monthlyCTC || Math.round(annualCTC / 12 * 100) / 100),
+            earnings: templateEarnings,
+            employerDeductions: Array.isArray(calculated.employerContributions) ? calculated.employerContributions : benefitsInput || [],
+            employeeDeductions: Array.isArray(calculated.employeeDeductions) ? calculated.employeeDeductions : deductionsInput || [],
             settings: settings || {}
         });
 
+        // 8. Validate template before saving
+        if (!template.earnings || template.earnings.length === 0) {
+            return res.status(400).json({ success: false, error: 'Template must have at least one earning component' });
+        }
+
         await template.save();
+        console.log(`[CREATE_TEMPLATE] Template created: ${template._id} for tenant ${tenantId}`);
+        console.log(`[CREATE_TEMPLATE] Earnings saved:`, template.earnings.map(e => ({ name: e.name, monthlyAmount: e.monthlyAmount })));
         res.status(201).json({ success: true, data: template });
     } catch (error) {
-        console.error('Create template error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('[CREATE_TEMPLATE] Error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to create salary template' });
     }
 };
 
@@ -727,6 +854,10 @@ exports.previewTemplate = async (req, res) => {
             });
         }
 
+        if (!req.params.id) {
+            return res.status(400).json({ success: false, error: 'Template ID is required' });
+        }
+
         const { SalaryTemplate } = getModels(req);
         const template = await SalaryTemplate.findOne({
             _id: req.params.id,
@@ -737,42 +868,68 @@ exports.previewTemplate = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Template not found' });
         }
 
-        // Use SalaryEngine to get complete breakdown
-        const overrideAnnualCTC = req.query?.annualCTC ? Number(req.query.annualCTC) : null;
-        const targetCTC = overrideAnnualCTC || template.annualCTC || 0;
+        // Use salary calculation service to get complete breakdown
+        const salaryCalculationService = require('../services/salaryCalculation.service');
 
-        if (!targetCTC) {
-            return res.status(400).json({ success: false, error: "Initial annualCTC not set in template and no override provided." });
+        // Allow overriding annualCTC via query parameter for interactive previews
+        const overrideAnnualCTC = req.query?.annualCTC ? Number(req.query.annualCTC) : null;
+        if (overrideAnnualCTC && !isNaN(overrideAnnualCTC)) {
+            try {
+                const calculated = await salaryCalculationService.calculateSalaryStructure(
+                    overrideAnnualCTC,
+                    template.earnings || [],
+                    template.settings || {},
+                    template.employeeDeductions || [],
+                    null, // benefitsInput - will be fetched
+                    req.tenantDB,
+                    tenantId
+                );
+
+                const salarySnapshot = {
+                    salaryTemplateId: template._id,
+                    earnings: calculated.earnings || [],
+                    employerContributions: calculated.benefits || calculated.employerContributions || [],
+                    employeeDeductions: calculated.deductions || calculated.employeeDeductions || [],
+                    grossA: { monthly: calculated.monthly.grossEarnings, yearly: calculated.yearly.grossEarnings },
+                    takeHome: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
+                    netSalary: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
+                    ctc: { monthly: calculated.monthly.ctc, yearly: calculated.yearly.totalCTC },
+                    calculatedAt: new Date()
+                };
+
+                return res.json({ success: true, data: salarySnapshot });
+            } catch (calcErr) {
+                console.error('[PREVIEW_TEMPLATE] Override calculation failed:', calcErr);
+                // Fallback to default template calculation below
+            }
         }
 
-        const calculated = await SalaryEngine.calculate({
-            annualCTC: targetCTC,
-            template
-        });
+        const calculated = await salaryCalculationService.calculateCompleteSalaryBreakdown(template, req.tenantDB, tenantId);
 
         const salarySnapshot = {
             salaryTemplateId: template._id,
+            templateName: template.templateName,
             earnings: calculated.earnings || [],
-            employerContributions: calculated.benefits || [],
-            employeeDeductions: calculated.deductions || [],
-            grossA: { monthly: calculated.totals.grossMonthly, yearly: calculated.totals.annualCTC }, // Adjusting to match existing expected format if needed
-            takeHome: { monthly: calculated.totals.netMonthly, yearly: calculated.totals.netMonthly * 12 },
-            netSalary: { monthly: calculated.totals.netMonthly, yearly: calculated.totals.netMonthly * 12 },
-            ctc: { monthly: calculated.monthlyCTC, yearly: calculated.annualCTC },
+            employerContributions: calculated.benefits || calculated.employerContributions || [],
+            employeeDeductions: calculated.deductions || calculated.employeeDeductions || [],
+            grossA: { monthly: calculated.monthly.grossEarnings, yearly: calculated.yearly.grossEarnings },
+            takeHome: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
+            netSalary: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
+            ctc: { monthly: calculated.monthly.ctc, yearly: calculated.yearly.totalCTC },
             calculatedAt: new Date()
         };
 
         res.json({ success: true, data: salarySnapshot });
     } catch (error) {
         console.error('[PREVIEW_TEMPLATE] Error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, error: error.message || 'Failed to preview template' });
     }
 };
 
 // Update Template
 exports.updateTemplate = async (req, res) => {
     try {
-        // Validate tenant context
+        // 1. Validate tenant context
         const tenantId = req.user?.tenantId || req.tenantId;
         if (!tenantId) {
             return res.status(401).json({
@@ -781,45 +938,139 @@ exports.updateTemplate = async (req, res) => {
             });
         }
 
+        if (!req.tenantDB) {
+            return res.status(500).json({
+                success: false,
+                error: 'Database connection not available'
+            });
+        }
+
+        // 2. Validate template ID
+        if (!req.params.id) {
+            return res.status(400).json({ success: false, error: 'Template ID is required' });
+        }
+
         const { SalaryTemplate } = getModels(req);
         const template = await SalaryTemplate.findOne({
             _id: req.params.id,
             tenantId
         });
 
-        if (!template) return res.status(404).json({ success: false, error: 'Template not found' });
-
-        if (template.isAssigned) {
-            // Only description allowed to edit
-            template.description = req.body.description;
-            await template.save();
-            return res.json({ success: true, data: template, message: 'Template is locked, only description updated' });
+        if (!template) {
+            return res.status(404).json({ success: false, error: 'Template not found' });
         }
 
-        const { templateName, description, annualCTC, earnings: earningsInput, employeeDeductions: deductionsInput, settings } = req.body;
-        const calculated = await salaryCalculationService.calculateSalaryStructure(
-            annualCTC || template.annualCTC,
-            earningsInput || template.earnings,
-            settings || template.settings,
-            deductionsInput || template.employeeDeductions,
-            null, // benefitsInput - will be fetched
-            req.tenantDB,
-            tenantId
-        );
+        // 3. If template is locked (assigned to employees), only allow description update
+        if (template.isAssigned) {
+            if (req.body.description !== undefined) {
+                template.description = req.body.description ? req.body.description.trim() : '';
+                await template.save();
+            }
+            return res.json({ success: true, data: template, message: 'Template is locked, only description was updated' });
+        }
 
-        template.templateName = templateName || template.templateName;
-        template.description = description || template.description;
-        template.annualCTC = calculated.annualCTC;
-        template.monthlyCTC = calculated.monthlyCTC;
-        template.earnings = calculated.earnings;
-        template.employerDeductions = calculated.employerContributions;
-        template.employeeDeductions = calculated.employeeDeductions;
+        // 4. Prepare update data
+        const { templateName, description, annualCTC, earnings: earningsInput, employeeDeductions: deductionsInput, employerDeductions: benefitsInput, settings } = req.body;
+
+        // 5. Validate inputs if provided
+        if (templateName !== undefined && (!templateName || !templateName.trim())) {
+            return res.status(400).json({ success: false, error: 'Template name cannot be empty' });
+        }
+
+        if (annualCTC !== undefined && (isNaN(annualCTC) || annualCTC <= 0)) {
+            return res.status(400).json({ success: false, error: 'Annual CTC must be a positive number' });
+        }
+
+        if (earningsInput !== undefined && Array.isArray(earningsInput) && earningsInput.length === 0) {
+            return res.status(400).json({ success: false, error: 'At least one earning component is required' });
+        }
+
+        // 5b. Normalize earningsInput if provided before passing to calculation
+        let normalizedEarningsForCalc = earningsInput;
+        if (Array.isArray(earningsInput) && earningsInput.length > 0) {
+            normalizedEarningsForCalc = earningsInput.map(earning => {
+                const monthlyAmount = Number(earning.monthlyAmount) || 0;
+                return {
+                    name: String(earning.name).trim(),
+                    monthlyAmount: monthlyAmount,
+                    annualAmount: Number((monthlyAmount * 12).toFixed(2)),
+                    calculationType: earning.calculationType || 'FIXED',
+                    percentage: earning.percentage || 0,
+                    componentCode: earning.componentCode || '',
+                    proRata: earning.proRata === true || (earning.proRata === undefined && earning.name.toLowerCase().includes('basic')),
+                    taxable: earning.taxable !== false,
+                    isRemovable: earning.isRemovable !== false,
+                    enabled: earning.enabled !== false
+                };
+            });
+        }
+
+        // 6. Calculate new salary structure
+        let calculated;
+        try {
+            calculated = await salaryCalculationService.calculateSalaryStructure(
+                annualCTC || template.annualCTC,
+                normalizedEarningsForCalc || template.earnings,
+                settings || template.settings,
+                deductionsInput || template.employeeDeductions,
+                benefitsInput || template.employerDeductions,
+                req.tenantDB,
+                tenantId
+            );
+        } catch (calcError) {
+            console.error('Salary calculation error during update:', calcError);
+            return res.status(400).json({ success: false, error: `Calculation failed: ${calcError.message}` });
+        }
+
+        if (!calculated || !calculated.earnings) {
+            return res.status(400).json({ success: false, error: 'Salary calculation returned invalid data' });
+        }
+
+        // 7. Ensure calculated earnings have required fields
+        let updatedEarnings = Array.isArray(calculated.earnings) ? calculated.earnings : template.earnings;
+        
+        // Validate and clean earnings
+        if (!Array.isArray(updatedEarnings) || updatedEarnings.length === 0) {
+            updatedEarnings = template.earnings;
+        }
+
+        // Ensure each earning has name and monthlyAmount
+        updatedEarnings = updatedEarnings.map(earning => {
+            if (!earning.name || earning.monthlyAmount === undefined) {
+                throw new Error(`Earning component missing required fields: name="${earning.name}", monthlyAmount=${earning.monthlyAmount}`);
+            }
+            const monthlyAmount = Number(earning.monthlyAmount) || 0;
+            const annualAmount = Number((monthlyAmount * 12).toFixed(2));
+            return {
+                name: String(earning.name).trim(),
+                monthlyAmount: monthlyAmount,
+                annualAmount: annualAmount,
+                calculationType: earning.calculationType || 'FIXED',
+                percentage: earning.percentage || 0,
+                componentCode: earning.componentCode || '',
+                proRata: earning.proRata === true || (earning.proRata === undefined && earning.name.toLowerCase().includes('basic')),
+                taxable: earning.taxable !== false,
+                isRemovable: earning.isRemovable !== false,
+                enabled: earning.enabled !== false
+            };
+        });
+
+        // 8. Update template
+        template.templateName = templateName !== undefined ? templateName.trim() : template.templateName;
+        template.description = description !== undefined ? (description ? description.trim() : '') : template.description;
+        template.annualCTC = Number(calculated.annualCTC || template.annualCTC);
+        template.monthlyCTC = Number(calculated.monthlyCTC || Math.round(template.annualCTC / 12 * 100) / 100);
+        template.earnings = updatedEarnings;
+        template.employerDeductions = Array.isArray(calculated.employerContributions) ? calculated.employerContributions : template.employerDeductions;
+        template.employeeDeductions = Array.isArray(calculated.employeeDeductions) ? calculated.employeeDeductions : template.employeeDeductions;
         template.settings = settings || template.settings;
 
         await template.save();
+        console.log(`[UPDATE_TEMPLATE] Template updated: ${template._id}`);
         res.json({ success: true, data: template });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('[UPDATE_TEMPLATE] Error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to update salary template' });
     }
 };
 
