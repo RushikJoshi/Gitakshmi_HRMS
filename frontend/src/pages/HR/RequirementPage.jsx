@@ -207,7 +207,7 @@ export default function RequirementPage() {
     );
 }
 
-function RequirementForm({ onClose, onSuccess, initialData, isEdit }) {
+function LocalRequirementForm({ onClose, onSuccess, initialData, isEdit }) {
     const [formData, setFormData] = useState({
         jobTitle: '',
         department: '',

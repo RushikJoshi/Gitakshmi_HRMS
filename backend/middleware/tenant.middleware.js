@@ -7,12 +7,10 @@ const getTenantDB = require('../utils/tenantDB');
 module.exports = async function tenantResolver(req, res, next) {
   try {
     // Defensive logging for debugging
-    console.log(`[TENANT_MIDDLEWARE] ${req.method} ${req.path}`);
-    console.log(`[TENANT_MIDDLEWARE] req.user:`, req.user ? { id: req.user.id, role: req.user.role, tenantId: req.user.tenantId } : 'null');
-    console.log(`[TENANT_MIDDLEWARE] Authorization header:`, req.headers.authorization ? 'present' : 'missing');
+    console.error(`[TENANT_MIDDLEWARE] ${req.method} ${req.path}`);
 
-    // Skip tenant resolution for OPTIONS requests (CORS preflight)
-    if (req.method === 'OPTIONS') {
+    // Skip tenant resolution for OPTIONS requests (CORS preflight) and Health Check
+    if (req.method === 'OPTIONS' || req.path === '/api/health' || req.path === '/health') {
       return next();
     }
 

@@ -41,6 +41,17 @@ async function connectToDatabase() {
     try {
         await mongoose.connect(MONGO_URI, connectOptions);
         console.log('✅ MongoDB connected');
+
+        // Register models for main DB (for super admin fallback)
+        mongoose.model('Notification', require('./models/Notification'));
+        mongoose.model('LeaveRequest', require('./models/LeaveRequest'));
+        mongoose.model('Regularization', require('./models/Regularization'));
+        mongoose.model('Applicant', require('./models/Applicant'));
+        mongoose.model('Requirement', require('./models/Requirement'));
+        mongoose.model('Candidate', require('./models/Candidate'));
+        mongoose.model('Interview', require('./models/Interview'));
+        mongoose.model('TrackerCandidate', require('./models/TrackerCandidate'));
+        mongoose.model('CandidateStatusLog', require('./models/CandidateStatusLog'));
     } catch (err) {
         console.error('❌ MongoDB initial connection failed:', err.message);
 
@@ -52,6 +63,17 @@ async function connectToDatabase() {
                 console.log(`🔄 Attempting fallback: ${fallback}`);
                 await mongoose.connect(fallback, connectOptions);
                 console.log('✅ MongoDB connected (Fallback)');
+
+                // Register models for main DB (for super admin fallback)
+                mongoose.model('Notification', require('./models/Notification'));
+                mongoose.model('LeaveRequest', require('./models/LeaveRequest'));
+                mongoose.model('Regularization', require('./models/Regularization'));
+                mongoose.model('Applicant', require('./models/Applicant'));
+                mongoose.model('Requirement', require('./models/Requirement'));
+                mongoose.model('Candidate', require('./models/Candidate'));
+                mongoose.model('Interview', require('./models/Interview'));
+                mongoose.model('TrackerCandidate', require('./models/TrackerCandidate'));
+                mongoose.model('CandidateStatusLog', require('./models/CandidateStatusLog'));
                 return;
             }
         }
@@ -79,11 +101,12 @@ async function startServer() {
         }
     });
 
+    console.log('⏳ Starting server.listen on port', PORT);
     server.listen(PORT, async () => {
         console.log(`🚀 Server running on port ${PORT}`);
 
         // Ngrok (Dev only)
-        const useNgrok = String(process.env.USE_NGROK || '').toLowerCase() === 'true' && process.env.NODE_ENV !== 'production';
+        const useNgrok = String(process.env.USE_NGROK || '').toLowerCase() === 'false' && process.env.NODE_ENV !== 'production';
         if (useNgrok && ngrok) {
             try {
                 if (process.env.NGROK_AUTHTOKEN) await ngrok.authtoken(process.env.NGROK_AUTHTOKEN);
