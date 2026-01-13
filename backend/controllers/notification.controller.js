@@ -1,33 +1,33 @@
 const mongoose = require('mongoose');
 
 const getModels = (req) => {
-  if (req.tenantDB) {
-    try {
-      return {
-        Notification: req.tenantDB.model('Notification'),
-        LeaveRequest: req.tenantDB.model('LeaveRequest'),
-        Regularization: req.tenantDB.model('Regularization'),
-      };
-    } catch (error) {
-      // Models not registered, register them
-      console.log(`[NOTIFICATION_CONTROLLER] Registering models in tenant DB`);
-      const NotificationSchema = require('../models/Notification');
-      const LeaveRequestSchema = require('../models/LeaveRequest');
-      const RegularizationSchema = require('../models/Regularization');
-      return {
-        Notification: req.tenantDB.model('Notification', NotificationSchema),
-        LeaveRequest: req.tenantDB.model('LeaveRequest', LeaveRequestSchema),
-        Regularization: req.tenantDB.model('Regularization', RegularizationSchema),
-      };
+    if (req.tenantDB) {
+        try {
+            return {
+                Notification: req.tenantDB.model('Notification'),
+                LeaveRequest: req.tenantDB.model('LeaveRequest'),
+                Regularization: req.tenantDB.model('Regularization'),
+            };
+        } catch (error) {
+            // Models not registered, register them
+            console.log(`[NOTIFICATION_CONTROLLER] Registering models in tenant DB`);
+            const NotificationSchema = require('../models/Notification');
+            const LeaveRequestSchema = require('../models/LeaveRequest');
+            const RegularizationSchema = require('../models/Regularization');
+            return {
+                Notification: req.tenantDB.model('Notification', NotificationSchema),
+                LeaveRequest: req.tenantDB.model('LeaveRequest', LeaveRequestSchema),
+                Regularization: req.tenantDB.model('Regularization', RegularizationSchema),
+            };
+        }
+    } else {
+        // Fallback for super admin or when tenantDB is not set
+        return {
+            Notification: mongoose.model('Notification'),
+            LeaveRequest: mongoose.model('LeaveRequest'),
+            Regularization: mongoose.model('Regularization'),
+        };
     }
-  } else {
-    // Fallback for super admin or when tenantDB is not set
-    return {
-      Notification: mongoose.model('Notification'),
-      LeaveRequest: mongoose.model('LeaveRequest'),
-      Regularization: mongoose.model('Regularization'),
-    };
-  }
 };
 
 // Create a new notification (Internal helper)
@@ -83,6 +83,14 @@ exports.getNotifications = async (req, res) => {
         console.log(`[NOTIFICATION_CONTROLLER] About to call getModels`);
         const { Notification } = getModels(req);
         console.log(`[NOTIFICATION_CONTROLLER] Got Notification model`);
+
+        // FIX: Super Admin ID ('psa_admin') often fails ObjectId casting.
+        // If user ID is not a valid ObjectId, return empty list to prevent CastError.
+        const mongoose = require('mongoose');
+        if (!mongoose.Types.ObjectId.isValid(req.user.id)) {
+            console.log('[NOTIFICATION_CONTROLLER] User ID is not an ObjectId (likely PSA), returning empty.');
+            return res.json({ notifications: [], unreadCount: 0 });
+        }
 
         // STRICT RULE: Backend MUST filter by receiverId + receiverRole + tenant
         // Never allow one user to see another's notifications.
