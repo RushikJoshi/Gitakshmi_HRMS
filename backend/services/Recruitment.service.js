@@ -77,7 +77,7 @@ class RecruitmentService {
 
         const total = await Requirement.countDocuments(filter);
         const requirements = await Requirement.find(filter)
-            .sort({ createdAt: -1 })
+            .sort({ updatedAt: -1 }) // Sort by last updated, newest first
             .skip(skip)
             .limit(limit);
 

@@ -634,10 +634,17 @@ function LocalRequirementForm({ onClose, onSuccess, initialData, isEdit }) {
 
 function ViewRequirementModal({ req, onClose }) {
     const customFields = req.customFields || [];
+    const workflow = req.workflow || [];
+    const detailedWorkflow = req.detailedWorkflow || [];
+
+    // Helper to get detailed info for a stage
+    const getStageDetails = (stageName) => {
+        return detailedWorkflow.find(s => s.name === stageName) || { name: stageName };
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-start p-6 border-b">
                     <div>
                         <div className="flex items-center gap-3">
@@ -676,6 +683,70 @@ function ViewRequirementModal({ req, onClose }) {
                     <h3 className="font-semibold text-slate-800 mb-2">Job Description</h3>
                     <p className="text-slate-600 whitespace-pre-wrap">{req.description || 'No description provided.'}</p>
                 </div>
+
+                {/* Hiring Stages Section */}
+                {workflow && workflow.length > 0 && (
+                    <div className="p-6 border-t border-slate-100 bg-gradient-to-br from-blue-50 to-indigo-50">
+                        <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                            Hiring Process ({workflow.length} Stages)
+                        </h3>
+                        <div className="space-y-3">
+                            {workflow.map((stageName, index) => {
+                                const details = getStageDetails(stageName);
+                                const isStart = stageName === 'Applied';
+                                const isEnd = stageName === 'Finalized';
+
+                                return (
+                                    <div
+                                        key={index}
+                                        className={`p-4 rounded-lg border-2 ${isStart ? 'bg-green-50 border-green-200' :
+                                                isEnd ? 'bg-slate-100 border-slate-300' :
+                                                    'bg-white border-indigo-200 shadow-sm'
+                                            }`}
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            <span className={`flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm ${isStart ? 'bg-green-200 text-green-800' :
+                                                    isEnd ? 'bg-slate-300 text-slate-700' :
+                                                        'bg-indigo-100 text-indigo-700'
+                                                }`}>
+                                                {isStart ? 'S' : isEnd ? 'E' : index}
+                                            </span>
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h4 className="font-semibold text-slate-900">{details.name || stageName}</h4>
+                                                    {details.type && !isStart && !isEnd && (
+                                                        <span className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full border border-indigo-200">
+                                                            {details.type}
+                                                        </span>
+                                                    )}
+                                                    {details.interviewType && (
+                                                        <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200">
+                                                            {details.interviewType}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {details.interviewer && (
+                                                    <div className="flex items-center gap-1.5 text-sm text-slate-600 mt-2">
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                                        <span className="font-medium">Interviewer:</span> {details.interviewer}
+                                                    </div>
+                                                )}
+
+                                                {details.description && (
+                                                    <p className="text-sm text-slate-600 mt-2 pl-0 border-l-2 border-indigo-200 pl-3">
+                                                        {details.description}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
 
                 {customFields.length > 0 && (
                     <div className="p-6 border-t border-slate-100">

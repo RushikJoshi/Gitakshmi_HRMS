@@ -25,8 +25,11 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
         'workMode', 'jobType', 'experience', 'salary'
     ]));
 
-    // Default Workflow
-    const [workflow, setWorkflow] = useState(['Shortlisted', 'Interview']);
+    // Enhanced Workflow with detailed interview stages
+    const [workflow, setWorkflow] = useState([
+        { name: 'Shortlisted', type: 'screening' },
+        { name: 'Interview', type: 'interview', interviewType: 'Technical', interviewer: '', description: '' }
+    ]);
 
     const [saving, setSaving] = useState(false);
 
@@ -63,8 +66,15 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
                 setPublicFields(new Set(initialData.publicFields));
             }
             if (initialData.workflow && Array.isArray(initialData.workflow)) {
-                // Filter out 'Applied' and 'Finalized' as they are fixed start/end points
-                const editable = initialData.workflow.filter(s => s !== 'Applied' && s !== 'Finalized' && s !== 'Rejected' && s !== 'Selected');
+                // Convert old string-based workflow to new object-based format
+                const editable = initialData.workflow
+                    .filter(s => s !== 'Applied' && s !== 'Finalized' && s !== 'Rejected' && s !== 'Selected')
+                    .map(stage => {
+                        if (typeof stage === 'string') {
+                            return { name: stage, type: stage.toLowerCase().includes('interview') ? 'interview' : 'screening' };
+                        }
+                        return stage;
+                    });
                 if (editable.length > 0) setWorkflow(editable);
             }
         }
@@ -96,14 +106,20 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
         setPublicFields(newSet);
     };
 
-    // Workflow Handlers
+    // Enhanced Workflow Handlers
     const addStage = () => {
-        setWorkflow([...workflow, 'New Round']);
+        setWorkflow([...workflow, {
+            name: 'New Round',
+            type: 'interview',
+            interviewType: 'Technical',
+            interviewer: '',
+            description: ''
+        }]);
     };
 
-    const updateStage = (index, val) => {
+    const updateStage = (index, field, val) => {
         const newWorkflow = [...workflow];
-        newWorkflow[index] = val;
+        newWorkflow[index] = { ...newWorkflow[index], [field]: val };
         setWorkflow(newWorkflow);
     };
 
@@ -131,15 +147,19 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
         // Filter out empty custom fields
         const validCustomFields = customFields.filter(f => f.label.trim() !== '' && f.value.trim() !== '');
 
-        // Construct simplified workflow to save
-        const fullWorkflow = ['Applied', ...workflow.filter(w => w.trim() !== ''), 'Finalized'];
+        // Construct simplified workflow to save - convert objects to strings for backend compatibility
+        const fullWorkflow = ['Applied', ...workflow.filter(w => w.name && w.name.trim() !== '').map(w => w.name), 'Finalized'];
+
+        // Store detailed workflow separately for future use
+        const detailedWorkflow = workflow.filter(w => w.name && w.name.trim() !== '');
 
         // Convert Set to Array for storage
         const payload = {
             ...formData,
             customFields: validCustomFields,
             publicFields: Array.from(publicFields),
-            workflow: fullWorkflow
+            workflow: fullWorkflow,
+            detailedWorkflow: detailedWorkflow // Store enhanced workflow data
         };
 
         try {
@@ -190,14 +210,6 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
             </button>
         </div>
     );
-
-    // Handle Enter key in stage inputs
-    const handleStageKeyDown = (e, index) => {
-        if (e.key === 'Enter') {
-            e.preventDefault(); // Prevent form submission
-            addStage(); // Add new stage instead
-        }
-    };
 
     const FormContent = (
         <form onSubmit={submit} className={isModal ? "p-6 overflow-y-auto" : "bg-white p-6 rounded-lg shadow-sm border border-slate-200"}>
@@ -491,20 +503,111 @@ export default function RequirementForm({ onClose, onSuccess, initialData, isEdi
 
                             {/* Dynamic Middle Stages */}
                             {workflow.map((stage, index) => (
-                                <div key={index} className="flex gap-3 items-center p-2 rounded-lg bg-white border border-slate-200 shadow-sm hover:border-blue-400 transition-colors group">
-                                    <span className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold border border-slate-200">{index + 1}</span>
-                                    <input
-                                        type="text"
-                                        value={stage}
-                                        onKeyDown={(e) => handleStageKeyDown(e, index)}
-                                        autoFocus={stage === 'New Round'}
-                                        onChange={(e) => updateStage(index, e.target.value)}
-                                        className="flex-1 px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Stage Name (e.g. Technical Round)"
-                                    />
-                                    <button type="button" onClick={() => removeStage(index)} className="text-slate-400 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity" title="Remove Stage">
-                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    </button>
+                                <div key={index} className="p-4 rounded-lg bg-white border-2 border-slate-200 shadow-sm hover:border-blue-400 transition-colors">
+                                    <div className="flex gap-3 items-start mb-3">
+                                        <span className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold border border-slate-200">{index + 1}</span>
+                                        <div className="flex-1 grid grid-cols-2 gap-3">
+                                            {/* Stage Name */}
+                                            <div className="col-span-2">
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">Stage Name *</label>
+                                                <input
+                                                    type="text"
+                                                    value={stage.name || ''}
+                                                    autoFocus={stage.name === 'New Round'}
+                                                    onChange={(e) => updateStage(index, 'name', e.target.value)}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                                                    placeholder="e.g. Technical Round, HR Interview"
+                                                    list={`stage-name-suggestions-${index}`}
+                                                />
+                                                <datalist id={`stage-name-suggestions-${index}`}>
+                                                    <option value="Shortlisted" />
+                                                    <option value="Phone Screening" />
+                                                    <option value="Technical Round" />
+                                                    <option value="HR Interview" />
+                                                    <option value="Managerial Round" />
+                                                    <option value="Final Interview" />
+                                                    <option value="Assessment" />
+                                                </datalist>
+                                            </div>
+
+                                            {/* Stage Type - Now Custom Input */}
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">Stage Type</label>
+                                                <input
+                                                    type="text"
+                                                    value={stage.type || ''}
+                                                    onChange={(e) => updateStage(index, 'type', e.target.value)}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                                                    placeholder="e.g. Screening, Interview"
+                                                    list={`stage-type-suggestions-${index}`}
+                                                />
+                                                <datalist id={`stage-type-suggestions-${index}`}>
+                                                    <option value="Screening" />
+                                                    <option value="Interview" />
+                                                    <option value="Assessment" />
+                                                    <option value="Test" />
+                                                    <option value="Other" />
+                                                </datalist>
+                                            </div>
+
+                                            {/* Interview Type - Now Custom Input (only show if type contains 'interview') */}
+                                            {stage.type && stage.type.toLowerCase().includes('interview') && (
+                                                <div>
+                                                    <label className="block text-xs font-medium text-slate-600 mb-1">Interview Type</label>
+                                                    <input
+                                                        type="text"
+                                                        value={stage.interviewType || ''}
+                                                        onChange={(e) => updateStage(index, 'interviewType', e.target.value)}
+                                                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                                                        placeholder="e.g. Technical, HR"
+                                                        list={`interview-type-suggestions-${index}`}
+                                                    />
+                                                    <datalist id={`interview-type-suggestions-${index}`}>
+                                                        <option value="Technical" />
+                                                        <option value="HR" />
+                                                        <option value="Managerial" />
+                                                        <option value="Cultural Fit" />
+                                                        <option value="Final Round" />
+                                                        <option value="Behavioral" />
+                                                    </datalist>
+                                                </div>
+                                            )}
+
+                                            {/* Interviewer Name */}
+                                            {stage.type && stage.type.toLowerCase().includes('interview') && (
+                                                <div className="col-span-2">
+                                                    <label className="block text-xs font-medium text-slate-600 mb-1">Interviewer Name (Optional)</label>
+                                                    <input
+                                                        type="text"
+                                                        value={stage.interviewer || ''}
+                                                        onChange={(e) => updateStage(index, 'interviewer', e.target.value)}
+                                                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                                                        placeholder="e.g. John Doe, Tech Lead"
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {/* Description */}
+                                            <div className="col-span-2">
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">Description (Optional)</label>
+                                                <textarea
+                                                    rows="2"
+                                                    value={stage.description || ''}
+                                                    onChange={(e) => updateStage(index, 'description', e.target.value)}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                                    placeholder="Brief description of what this stage involves..."
+                                                />
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeStage(index)}
+                                            className="text-slate-400 hover:text-red-500 p-2 transition-colors"
+                                            title="Remove Stage"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
 
