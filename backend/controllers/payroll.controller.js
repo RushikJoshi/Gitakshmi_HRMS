@@ -223,7 +223,7 @@ exports.updateEarning = async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
 
-        fs.appendFileSync('debug_payroll.txt', `[UpdateEarning] ID: ${id}, Body: ${JSON.stringify(updates)}\n`);
+        // fs.appendFileSync('debug_payroll.txt', `[UpdateEarning] ID: ${id}, Body: ${JSON.stringify(updates)}\n`);
 
 
         // Ensure tenant isolation - only find components belonging to this tenant

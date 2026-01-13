@@ -183,8 +183,8 @@ mongoose
     mongoose.model('TrackerCandidate', require('./models/TrackerCandidate'));
     mongoose.model('CandidateStatusLog', require('./models/CandidateStatusLog'));
 
-    app.listen(PORT, async () => {
-      console.log(`âœ… Server running on port ${PORT}`);
+    const server = app.listen(PORT, async () => {
+      console.log(`✅ Server running on port ${PORT}`);
 
       const useNgrok =
         String(process.env.USE_NGROK || '').toLowerCase() === 'true' &&
@@ -197,14 +197,35 @@ mongoose
           }
           const url = await ngrok.connect({ addr: PORT });
           process.env.NGROK_URL = url;
-          console.log('ðŸŒ NGROK URL:', url);
+          console.log('🌍 NGROK URL:', url);
         } catch (e) {
           console.warn('ngrok failed:', e.message);
         }
       }
 
-      console.log('âœ… Server fully initialized');
+      console.log('✅ Server fully initialized');
     });
+
+    // Handle Port In Use Error
+    server.on('error', (e) => {
+      if (e.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use!`);
+        console.error(`👉 Try running: npx kill-port ${PORT}`);
+        process.exit(1);
+      }
+    });
+
+    // Graceful Shutdown for Nodemon
+    const gracefulShutdown = () => {
+      console.log('🔄 Server restarting/stopping...');
+      server.close(() => {
+        console.log('🛑 Server closed.');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
   })
   .catch((err) => {
     console.error('âŒ MongoDB connection failed:', err);

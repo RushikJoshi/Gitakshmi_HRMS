@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "backend"
+  ],
+  "ext": "js,json",
+  "ignore": [
+    "backend/uploads/**",
+    "backend/logs/**",
+    "node_modules/**",
+    ".git/**",
+    "*.log",
+    "*.txt",
+    ".env"
+  ]
+}

@@ -59,6 +59,7 @@ function registerModels(db, tenantId) {
     const PayslipSchema = require("../models/Payslip");
     const CompanyPayrollRuleSchema = require("../models/CompanyPayrollRule");
     // SalaryStructure is now GLOBAL - removed from here
+    // Candidate Core & Tracker Models
     const CandidateSchema = require("../models/Candidate");
     const TrackerCandidateSchema = require("../models/TrackerCandidate");
     const CandidateStatusLogSchema = require("../models/CandidateStatusLog");
@@ -101,7 +102,7 @@ function registerModels(db, tenantId) {
     if (!db.models.Payslip) db.model("Payslip", PayslipSchema);
     if (!db.models.CompanyPayrollRule) db.model("CompanyPayrollRule", CompanyPayrollRuleSchema);
     // SalaryStructure removed - GLOBAL
-    if (!db.models.Candidate) db.model("Candidate", CandidateSchema);
+    if (!db.models.Candidate) db.model("Candidate", CandidateSchema); // Ensure consistent casing
     if (!db.models.TrackerCandidate) db.model("TrackerCandidate", TrackerCandidateSchema);
     if (!db.models.CandidateStatusLog) db.model("CandidateStatusLog", CandidateStatusLogSchema);
     if (!db.models.SalaryAssignment) db.model("SalaryAssignment", SalaryAssignmentSchema);
@@ -113,6 +114,9 @@ function registerModels(db, tenantId) {
     // Dynamic Requirement Forms
     const RequirementTemplateSchema = require("../models/RequirementTemplate");
     if (!db.models.RequirementTemplate) db.model("RequirementTemplate", RequirementTemplateSchema);
+
+    const CounterSchema = require("../models/Counter");
+    if (!db.models.Counter) db.model("Counter", CounterSchema);
 
 
     registeredModels.add(tenantId);
@@ -163,14 +167,25 @@ function getTenantDB(tenantId) {
   }
 
   // Create tenant DB (reuses underlying connection)
-  const dbName = `company_${tenantId}`;
+  // REFACTOR: Use ONE shared database for all tenants to avoid hitting 500 collection limit.
+  // All collections will now hold data for ALL tenants, distinguished by 'tenant' field.
+  const dbName = `hrms_tenants_data`;
+
+  // Check if we already have a handle for this SHARED db
+  // We use a specific key 'SHARED_DB' in caching to avoid creating multiple handles for the same DB
+  if (tenantDbs['SHARED_DB']) {
+    return tenantDbs['SHARED_DB'];
+  }
+
   const tenantDb = mongoose.connection.useDb(dbName, { useCache: true });
 
-  registerModels(tenantDb, tenantId);
+  registerModels(tenantDb, tenantId); // Register models once
 
-  tenantDbs[tenantId] = tenantDb;
+  tenantDbs['SHARED_DB'] = tenantDb;
+  tenantDbs[tenantId] = tenantDb; // Map access to shared DB
+
   console.log(
-    `Tenant DB prepared: ${dbName} (${Object.keys(tenantDbs).length}/${MAX_CACHED_CONNECTIONS})`
+    `Tenant DB prepared: ${dbName} (Shared Mode)`
   );
 
   return tenantDb;

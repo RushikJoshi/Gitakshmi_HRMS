@@ -48,8 +48,8 @@ exports.createRequirement = async (req, res) => {
 exports.getRequirements = async (req, res) => {
     try {
         const tenantId = req.tenantId || req.user.tenantId || req.user.tenant;
-        const requirements = await RecruitmentService.getRequirements(tenantId, req.query);
-        res.json(requirements);
+        const result = await RecruitmentService.getRequirements(tenantId, req.query);
+        res.json(result);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
