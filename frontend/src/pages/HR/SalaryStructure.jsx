@@ -40,9 +40,33 @@ export default function SalaryStructure() {
     // Result State (from Backend)
     const [previewData, setPreviewData] = useState(null);
 
+    // Extra Components State
+    const [extraComponents, setExtraComponents] = useState([]);
+    const [availableComponents, setAvailableComponents] = useState({ earnings: [], deductions: [], benefits: [] });
+    const [showModal, setShowModal] = useState(false);
+    const [activeSection, setActiveSection] = useState(null); // 'Earnings', 'Deductions', 'Benefits'
+
     useEffect(() => {
         fetchData();
+        fetchComponents();
     }, [candidateId]);
+
+    const fetchComponents = async () => {
+        try {
+            const [eRes, dRes, bRes] = await Promise.all([
+                api.get('/payroll/earnings'),
+                api.get('/deductions'),
+                api.get('/payroll/benefits')
+            ]);
+            setAvailableComponents({
+                earnings: eRes.data.data || [],
+                deductions: dRes.data.data || [],
+                benefits: bRes.data.data || []
+            });
+        } catch (err) {
+            console.error("Failed to fetch components", err);
+        }
+    };
 
     const fetchData = async () => {
         try {
@@ -54,43 +78,59 @@ export default function SalaryStructure() {
 
             // Now try fetching candidate/applicant data from multiple endpoints
             let candData = null;
-            try {
-                // 1. Try Applicants route (most likely if coming from Applicants list)
-                const res = await api.get(`/requirements/applicants/${candidateId}`);
-                candData = res.data.data || res.data;
-            } catch (e1) {
+            let errors = [];
+
+            // 1. Try Applicants route (most likely if coming from Applicants list)
+            if (!candData) {
                 try {
-                    // 2. Try Employees route
+                    const res = await api.get(`/requirements/applicants/${candidateId}`);
+                    candData = res.data.data || res.data;
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`App: ${msg}`);
+                }
+            }
+
+            // 2. Try Employees route
+            if (!candData) {
+                try {
                     const res = await api.get(`/hr/employees/${candidateId}`);
                     candData = res.data.data || res.data;
-                } catch (e2) {
-                    try {
-                        // 3. Try Candidate/Public route (fallback)
-                        const res = await api.get(`/candidate/${candidateId}`);
-                        candData = res.data.data || res.data;
-                    } catch (e3) {
-                        console.error("All candidate fetch attempts failed", { e1, e2, e3 });
-                    }
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`Emp: ${msg}`);
+                }
+            }
+
+            // 3. Try Candidate/Public route (fallback)
+            if (!candData) {
+                try {
+                    const res = await api.get(`/candidate/${candidateId}`);
+                    candData = res.data.data || res.data;
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`Pub: ${msg}`);
                 }
             }
 
             if (candData) {
                 setCandidate(candData);
                 // Set initial CTC if candidate already has one
+                // Mongoose populates into the field name: salarySnapshotId
+                const snapshot = candData.salarySnapshotId || candData.salarySnapshot;
+
                 if (candData.ctc) {
                     setCtcInput(candData.ctc.toString());
-                } else if (candData.salarySnapshot?.annualCTC) {
-                    setCtcInput(candData.salarySnapshot.annualCTC.toString());
+                } else if (snapshot?.ctc) {
+                    setCtcInput(snapshot.ctc.toString());
+                } else if (snapshot?.annualCTC) {
+                    setCtcInput(snapshot.annualCTC.toString());
                 }
 
-                // If candidate has a template assigned, select it
-                if (candData.salaryTemplateId) {
-                    const templateId = candData.salaryTemplateId._id || candData.salaryTemplateId;
-                    setSelectedTemplateId(templateId.toString());
-                }
+                setError(null);
             } else {
-                setError("Could not find applicant or employee with the provided ID. Please check if the candidate exists.");
-                console.warn("Could not find applicant/employee for ID:", candidateId);
+                setError(`Could not find candidate. Errors: ${errors.join(' | ')}`);
+                console.warn("Fetch failed:", errors);
             }
 
         } catch (err) {
@@ -112,11 +152,11 @@ export default function SalaryStructure() {
 
         try {
             setLoading(true);
-            const res = await api.get('/payroll-engine/salary/preview', {
-                params: {
-                    templateId: selectedTemplateId,
-                    ctcAnnual: ctcInput
-                }
+            // Use POST to send additional components
+            const res = await api.post('/payroll-engine/salary/preview', {
+                templateId: selectedTemplateId,
+                ctcAnnual: ctcInput,
+                additionalComponents: extraComponents
             });
             setPreviewData(res.data.data);
         } catch (err) {
@@ -142,18 +182,44 @@ export default function SalaryStructure() {
                 applicantId: candidateId,
                 templateId: selectedTemplateId,
                 ctcAnnual: parseFloat(ctcInput),
-                effectiveDate: new Date()
+                effectiveDate: new Date(),
+                additionalComponents: extraComponents // Include extra components in assignment
             };
 
             await api.post('/payroll-engine/salary/assign', payload);
-            alert("✅ Salary assigned and snapshot created successfully. You can now generate the joining letter.");
-            navigate('/hr/applicants');
+
+            // Navigate to applicants page with state to auto-open joining letter modal
+            navigate('/hr/applicants', {
+                state: {
+                    openJoiningLetterFor: candidateId,
+                    message: "✅ Salary assigned successfully! Generate the joining letter below."
+                }
+            });
         } catch (err) {
             console.error("Assignment failed:", err);
             alert("Error: " + (err.response?.data?.message || err.message));
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleAddComponent = (component) => {
+        // Add to extraComponents if not exists
+        // Structure: { type: 'Fixed', name: 'Bonus', componentCode: 'BONUS', category: 'Earnings' }
+        const newComp = {
+            ...component,
+            category: activeSection, // Earnings, Deductions, Benefits
+            value: 0 // Default, will need formula or value logic. For now just add to list so engine resolves it.
+        };
+
+        // Check duplicates
+        if (!extraComponents.find(c => c._id === component._id)) {
+            const updated = [...extraComponents, newComp];
+            setExtraComponents(updated);
+            // Auto recalculate?
+            // handleCalculate(); // Call manually to avoid state loops, or user clicks calculate
+        }
+        setShowModal(false);
     };
 
     const formatCurrency = (amount) => {
@@ -180,8 +246,43 @@ export default function SalaryStructure() {
 
     const totals = previewData?.totals || null;
 
+    // Helper to filter available components for modal
+    const getModalComponents = () => {
+        if (activeSection === 'Earnings') return availableComponents.earnings;
+        if (activeSection === 'Deductions') return availableComponents.deductions;
+        if (activeSection === 'Benefits') return availableComponents.benefits;
+        return [];
+    };
+
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6 bg-gray-50 min-h-screen">
+            {/* Modal for Adding Components */}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold">Add {activeSection}</h3>
+                            <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><X size={20} /></button>
+                        </div>
+                        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                            {getModalComponents().map(c => (
+                                <button
+                                    key={c._id}
+                                    onClick={() => handleAddComponent(c)}
+                                    className="w-full flex items-center justify-between p-3 hover:bg-blue-50 border border-gray-100 rounded-xl transition text-left group"
+                                >
+                                    <span className="font-bold text-gray-700 group-hover:text-blue-700">{c.name}</span>
+                                    {/* <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded group-hover:bg-blue-100">{c.type}</span> */}
+                                </button>
+                            ))}
+                            {getModalComponents().length === 0 && (
+                                <p className="text-center text-gray-400 p-4">No components found</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/hr/applicants')} className="p-2 hover:bg-white rounded-full transition shadow-sm border">
@@ -244,16 +345,24 @@ export default function SalaryStructure() {
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                                 <div className="px-6 py-4 bg-gradient-to-r from-green-50 to-white border-b border-green-100 flex justify-between items-center">
                                     <h3 className="font-bold text-green-800 flex items-center gap-2"><TrendingUp size={18} /> Monthly Earnings (Resolved)</h3>
+                                    <button
+                                        onClick={() => { setActiveSection('Earnings'); setShowModal(true); }}
+                                        className="p-1 px-3 bg-white border border-green-200 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50"
+                                    >
+                                        + Add
+                                    </button>
                                 </div>
                                 <div className="p-6 space-y-4">
                                     {previewData.earnings.map(comp => (
-                                        <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-transparent">
+                                        <div key={comp.code} className={`flex items-center justify-between p-4 rounded-xl border ${comp.isBalancer ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-transparent'}`}>
                                             <div className="flex flex-col">
-                                                <span className="font-bold text-gray-800">{comp.name}</span>
-                                                <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
+                                                <span className={`font-bold ${comp.isBalancer ? 'text-indigo-800' : 'text-gray-800'}`}>{comp.name}</span>
+                                                <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                                                    {comp.isBalancer ? 'Auto-Balanced (CTC - Earnings - Benefits)' : `Formula: ${comp.formula}`}
+                                                </span>
                                             </div>
                                             <div className="text-right">
-                                                <p className="font-black text-gray-900">₹{formatCurrency(comp.amount / 12)}</p>
+                                                <p className={`font-black ${comp.isBalancer ? 'text-indigo-700' : 'text-gray-900'}`}>₹{formatCurrency(comp.amount / 12)}</p>
                                                 <p className="text-[9px] text-gray-400">₹{formatCurrency(comp.amount)} / yr</p>
                                             </div>
                                         </div>
@@ -265,6 +374,12 @@ export default function SalaryStructure() {
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                                 <div className="px-6 py-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100 flex justify-between items-center">
                                     <h3 className="font-bold text-red-800 flex items-center gap-2"><TrendingDown size={18} /> Employee Deductions</h3>
+                                    <button
+                                        onClick={() => { setActiveSection('Deductions'); setShowModal(true); }}
+                                        className="p-1 px-3 bg-white border border-red-200 text-red-700 rounded-lg text-xs font-bold hover:bg-red-50"
+                                    >
+                                        + Add
+                                    </button>
                                 </div>
                                 <div className="p-6 space-y-4">
                                     {previewData.deductions.map(comp => (
@@ -283,8 +398,14 @@ export default function SalaryStructure() {
 
                             {/* BENEFITS */}
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                                <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100">
+                                <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex justify-between items-center">
                                     <h3 className="font-bold text-blue-800 flex items-center gap-2"><ShieldCheck size={18} /> Employer Benefits</h3>
+                                    <button
+                                        onClick={() => { setActiveSection('Benefits'); setShowModal(true); }}
+                                        className="p-1 px-3 bg-white border border-blue-200 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-50"
+                                    >
+                                        + Add
+                                    </button>
                                 </div>
                                 <div className="p-6 space-y-4">
                                     {previewData.benefits.map(comp => (

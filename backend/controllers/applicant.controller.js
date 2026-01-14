@@ -246,16 +246,22 @@ exports.getApplicantById = async (req, res) => {
             });
         }
 
+        logToDebug(`[GET_APPLICANT] Request for ID: ${applicantId} under Tenant: ${req.tenantId}`);
+        console.log(`[GET_APPLICANT] Request for ID: ${applicantId} under Tenant: ${req.tenantId}`);
+
         const applicant = await Applicant.findById(applicantId)
             .populate('requirementId', 'jobTitle department')
-            .populate('salaryTemplateId');
+            .populate('salarySnapshotId');
 
         if (!applicant) {
+            console.warn(`[GET_APPLICANT] Applicant ID ${applicantId} NOT FOUND in DB for Tenant ${req.tenantId}`);
             return res.status(404).json({
                 success: false,
                 error: 'Applicant not found'
             });
         }
+
+        console.log(`[GET_APPLICANT] Found: ${applicant.name} (${applicant._id})`);
 
         res.json({
             success: true,
