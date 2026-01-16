@@ -32,6 +32,15 @@ export default function Employees() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
+  // Joining Letter State
+  const [showJoiningModal, setShowJoiningModal] = useState(false);
+  const [selectedEmpForJoining, setSelectedEmpForJoining] = useState(null);
+  const [joiningTemplateId, setJoiningTemplateId] = useState('');
+  const [joiningTemplates, setJoiningTemplates] = useState([]);
+  const [generatingJoining, setGeneratingJoining] = useState(false);
+  const [joiningPreviewUrl, setJoiningPreviewUrl] = useState(null);
+  const [showJoiningPreview, setShowJoiningPreview] = useState(false);
+
   async function loadDrafts() {
     try {
       const res = await api.get('/hr/employees?status=Draft');
@@ -54,6 +63,13 @@ export default function Employees() {
 
   useEffect(() => {
     load();
+    async function fetchJoiningTemplates() {
+      try {
+        const res = await api.get('/letters/templates?type=joining');
+        setJoiningTemplates(res.data || []);
+      } catch (err) { console.error("Failed to load joining templates", err); }
+    }
+    fetchJoiningTemplates();
   }, []); // Removed selectedDepartment dependency
 
   // Helper to derive a readable display name from various possible fields
@@ -82,6 +98,53 @@ export default function Employees() {
       load();
     } catch (err) { console.error(err); alert('Delete failed'); }
   }
+
+  const openJoiningModal = (emp) => {
+    setSelectedEmpForJoining(emp);
+    setJoiningTemplateId('');
+    setShowJoiningModal(true);
+    setJoiningPreviewUrl(null);
+    setShowJoiningPreview(false);
+  };
+
+  const handleJoiningPreview = async () => {
+    if (!joiningTemplateId) { alert('Please select a Joining Letter Template'); return; }
+    setGeneratingJoining(true);
+    try {
+      const res = await api.post('/letters/preview-joining', {
+        employeeId: selectedEmpForJoining._id,
+        templateId: joiningTemplateId
+      });
+      if (res.data.previewUrl) {
+        const url = `${BACKEND_URL}${res.data.previewUrl}`;
+        setJoiningPreviewUrl(url);
+        setShowJoiningPreview(true);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to preview joining letter: ' + (err.response?.data?.message || err.message));
+    } finally { setGeneratingJoining(false); }
+  };
+
+  const handleJoiningGenerate = async () => {
+    if (!joiningTemplateId) { alert('Please select a Joining Letter Template'); return; }
+    setGeneratingJoining(true);
+    try {
+      const res = await api.post('/letters/generate-joining', {
+        employeeId: selectedEmpForJoining._id,
+        templateId: joiningTemplateId
+      });
+      if (res.data.downloadUrl) {
+        const url = `${BACKEND_URL}${res.data.downloadUrl}`;
+        window.open(url, '_blank');
+        setShowJoiningModal(false);
+        alert('Joining Letter generated successfully!');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate joining letter: ' + (err.response?.data?.message || err.message));
+    } finally { setGeneratingJoining(false); }
+  };
 
   if (openForm) {
     if (viewing) {
@@ -272,6 +335,15 @@ export default function Employees() {
                             <button onClick={() => setAssigningSalary(emp)} className="p-1.5 rounded hover:bg-purple-50 transition" title="Assign Salary Structure" aria-label="Assign Salary">
                               <IndianRupee className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
                             </button>
+                            <button
+                              onClick={() => openJoiningModal(emp)}
+                              disabled={!emp.salaryLocked}
+                              className={`p-1.5 rounded transition ${!emp.salaryLocked ? 'opacity-40 cursor-not-allowed grayscale' : 'hover:bg-amber-50'}`}
+                              title={emp.salaryLocked ? "Joining Letter" : "Lock salary in Salary Assignment first"}
+                              aria-label="Joining Letter"
+                            >
+                              <FileText className={`h-4 w-4 sm:h-5 sm:w-5 ${emp.salaryLocked ? 'text-amber-600' : 'text-slate-400'}`} />
+                            </button>
                             <button onClick={() => openEdit(emp)} className="p-1.5 rounded hover:bg-blue-50 transition" title="Edit" aria-label="Edit employee">
                               <Edit2 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
                             </button>
@@ -329,6 +401,94 @@ export default function Employees() {
           </div>
         )
       }
+
+      {/* Joining Letter Modal */}
+      {showJoiningModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h2 className="text-xl font-bold text-slate-900">Joining Letter - {getDisplayName(selectedEmpForJoining)}</h2>
+              <button onClick={() => setShowJoiningModal(false)} className="text-slate-400 hover:text-slate-600 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto no-scrollbar">
+              {!showJoiningPreview ? (
+                <>
+                  <p className="text-sm text-slate-600">Select a Joining Letter template to generate the document for this employee.</p>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Select Template</label>
+                    <select
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={joiningTemplateId}
+                      onChange={(e) => setJoiningTemplateId(e.target.value)}
+                    >
+                      <option value="">Choose a template...</option>
+                      {joiningTemplates.map(t => (
+                        <option key={t._id} value={t._id}>{t.name}</option>
+                      ))}
+                    </select>
+                    {joiningTemplates.length === 0 && (
+                      <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 italic">
+                        No joining letter templates found. Please upload one in <b>Letter Templates</b> section first.
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="w-full h-[500px] border border-slate-200 rounded-lg overflow-hidden bg-slate-100 flex flex-col">
+                  {joiningPreviewUrl ? (
+                    <iframe src={joiningPreviewUrl} title="Joining Letter Preview" className="w-full flex-1" />
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-slate-500 italic">Generating Preview...</div>
+                  )}
+                  <div className="p-3 bg-white border-t border-slate-200 flex justify-between gap-2">
+                    <button
+                      onClick={() => setShowJoiningPreview(false)}
+                      className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition text-sm font-medium"
+                    >
+                      Back to Selection
+                    </button>
+                    <button
+                      onClick={handleJoiningGenerate}
+                      disabled={generatingJoining}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-md disabled:opacity-50 text-sm font-medium"
+                    >
+                      {generatingJoining ? 'Downloading...' : 'Download Final PDF'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {!showJoiningPreview && (
+              <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50">
+                <button
+                  onClick={() => setShowJoiningModal(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleJoiningPreview}
+                  disabled={!joiningTemplateId || generatingJoining}
+                  className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition shadow-md disabled:opacity-50 text-sm font-medium"
+                >
+                  {generatingJoining ? 'Generating...' : 'Preview Letter'}
+                </button>
+                <button
+                  onClick={handleJoiningGenerate}
+                  disabled={!joiningTemplateId || generatingJoining}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-md disabled:opacity-50 text-sm font-medium"
+                >
+                  {generatingJoining ? 'Processing...' : 'Generate & Download'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Salary Assignment Modal */}
       {assigningSalary && (

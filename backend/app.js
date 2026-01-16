@@ -126,6 +126,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salary-structure', salaryStructureRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/payroll', payrollRoutes);
+app.use('/api/salary', require('./routes/salary.routes'));
 
 // Optional modules - handle if missing/failing
 try {

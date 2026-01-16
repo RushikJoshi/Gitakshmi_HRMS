@@ -118,8 +118,14 @@ const EmployeeSchema = new mongoose.Schema({
     index: true
   },
 
-  // Legacy reference (kept for backward compatibility)
+  // NEW: State for Mandatory Salary Lock
+  salaryAssigned: { type: Boolean, default: false },
+  salaryLocked: { type: Boolean, default: false },
+  currentSnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
+
+  // Legacy reference (kept for backward compatibility - will phase out in favor of currentSnapshotId)
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
+  currentSalarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
 
   // ========================================
   // PROMOTION & CAREER PROGRESSION

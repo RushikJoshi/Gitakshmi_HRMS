@@ -91,7 +91,7 @@ class SalaryEngine {
     let totalComputedBenefits = 0;
 
     const earnings = [];
-    const deductions = [];
+    const employeeDeductions = [];
     const benefits = [];
 
     // Helper to process items
@@ -117,7 +117,7 @@ class SalaryEngine {
           benefits.push(item);
           totalComputedBenefits += item.annualAmount;
         } else if (meta.type === 'DEDUCTION') {
-          deductions.push(item);
+          employeeDeductions.push(item);
         }
       } catch (err) {
         throw new Error(`Formula resolution failed for ${code}: ${err.message}`);
@@ -187,7 +187,7 @@ class SalaryEngine {
 
     const earningsSum = earnings.reduce((sum, e) => sum + e.annualAmount, 0);
     const benefitsSum = benefits.reduce((sum, b) => sum + b.annualAmount, 0);
-    const deductionsSum = deductions.reduce((sum, d) => sum + d.annualAmount, 0);
+    const deductionsSum = employeeDeductions.reduce((sum, d) => sum + d.annualAmount, 0);
 
     // Final Cost
     const finalTotalCost = Math.round((earningsSum + benefitsSum) * 100) / 100;
@@ -202,7 +202,7 @@ class SalaryEngine {
       annualCTC,
       monthlyCTC: Math.round((annualCTC / 12) * 100) / 100,
       earnings,
-      deductions,
+      employeeDeductions,
       benefits,
       totalCost: finalTotalCost,
       totals: {
@@ -239,10 +239,11 @@ class SalaryEngine {
       applicant: applicantId || null,
       tenant: tenantId,
       ctc: annualCTC,
+      monthlyCTC: Math.round((annualCTC / 12) * 100) / 100,
       earnings: calculated.earnings,
-      deductions: calculated.deductions,
+      employeeDeductions: calculated.employeeDeductions,
       benefits: calculated.benefits,
-      effectiveDate: effectiveDate || new Date()
+      effectiveFrom: effectiveDate || new Date()
     });
 
     return snapshot;

@@ -16,7 +16,7 @@ console.log('🔥 Using API BASE:', API_BASE);
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 10000, // 10 second timeout for production
+  timeout: 60000, // Increased to 60 seconds to accommodate heavy operations like PDF generation
 });
 
 /**
