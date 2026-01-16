@@ -11,7 +11,9 @@ const SalaryController = {
      */
     preview: async (req, res) => {
         try {
-            const { templateId, ctcAnnual } = req.query;
+            // Support both GET (query) and POST (body)
+            const params = { ...req.query, ...req.body };
+            const { templateId, ctcAnnual, additionalComponents } = params;
             const tenantDB = req.tenantDB;
 
             if (!templateId || !ctcAnnual) {
@@ -19,7 +21,7 @@ const SalaryController = {
             }
 
             const SalaryTemplate = tenantDB.model('SalaryTemplate');
-            const template = await SalaryTemplate.findById(templateId);
+            const template = await SalaryTemplate.findById(templateId).lean(); // Use lean to allow modification
 
             if (!template) {
                 return res.status(404).json({ success: false, message: "Template not found" });
@@ -28,7 +30,8 @@ const SalaryController = {
             // Calculation only - no DB write
             const resolved = await SalaryEngine.calculate({
                 annualCTC: Number(ctcAnnual),
-                template
+                template,
+                additionalComponents: additionalComponents || []
             });
 
             res.json({
@@ -48,7 +51,7 @@ const SalaryController = {
      */
     assign: async (req, res) => {
         try {
-            const { employeeId, applicantId, templateId, ctcAnnual, effectiveDate } = req.body;
+            const { employeeId, applicantId, templateId, ctcAnnual, effectiveDate, additionalComponents } = req.body;
             const tenantDB = req.tenantDB;
 
             if (!templateId || !ctcAnnual) {
@@ -56,7 +59,7 @@ const SalaryController = {
             }
 
             const SalaryTemplate = tenantDB.model('SalaryTemplate');
-            const template = await SalaryTemplate.findById(templateId);
+            const template = await SalaryTemplate.findById(templateId).lean(); // Use lean to allow modification
 
             if (!template) {
                 return res.status(404).json({ success: false, message: "Template not found" });
@@ -69,6 +72,7 @@ const SalaryController = {
                 tenantId: req.tenantId,
                 annualCTC: Number(ctcAnnual),
                 template,
+                additionalComponents: additionalComponents || [],
                 effectiveDate: effectiveDate || new Date()
             });
 
