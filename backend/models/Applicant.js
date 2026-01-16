@@ -58,6 +58,8 @@ const ApplicantSchema = new mongoose.Schema({
   },
 
   // New Snapshot-based Payroll Reference
+  salaryAssigned: { type: Boolean, default: false },
+  salaryLocked: { type: Boolean, default: false },
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
 
   // LEGACY: Embedded Salary Assignment (to be removed once fully migrated)

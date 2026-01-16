@@ -1614,9 +1614,13 @@ export default function Applicants() {
 
                                                                     <td className="px-6 py-5">
                                                                         {app.status === 'Selected' ? (
-                                                                            app.salarySnapshot?.ctc?.yearly > 0 ? (
+                                                                            (app.salarySnapshotId?.ctc || app.salarySnapshot?.ctc?.yearly) > 0 ? (
                                                                                 <div className="flex items-center gap-2 group/sal">
-                                                                                    <div className="text-[11px] font-black text-slate-800 bg-slate-100 px-2 py-1 rounded-lg">₹{(app.salarySnapshot.ctc.yearly / 100000).toFixed(1)}L <span className="text-[9px] text-slate-400">/YR</span></div>
+                                                                                    {(() => {
+                                                                                        const snap = app.salarySnapshotId || app.salarySnapshot;
+                                                                                        const ctc = snap?.ctc?.yearly || snap?.ctc || 0;
+                                                                                        return <div className="text-[11px] font-black text-slate-800 bg-slate-100 px-2 py-1 rounded-lg">₹{(ctc / 100000).toFixed(1)}L <span className="text-[9px] text-slate-400">/YR</span></div>
+                                                                                    })()}
                                                                                     <button onClick={() => openSalaryModal(app)} className="opacity-0 group-hover/sal:opacity-100 transition-opacity p-1 text-slate-400 hover:text-blue-600"><Edit2 size={12} /></button>
                                                                                 </div>
                                                                             ) : (
@@ -1637,7 +1641,14 @@ export default function Applicants() {
                                                                                     <button onClick={() => viewJoiningLetter(app.joiningLetterPath)} className="w-8 h-8 flex items-center justify-center bg-purple-50 text-purple-600 rounded-lg"><Eye size={16} /></button>
                                                                                     <button onClick={() => downloadJoining(app.joiningLetterPath)} className="w-8 h-8 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg"><Download size={16} /></button>
                                                                                 </div>
-                                                                            ) : <button onClick={() => openJoiningModal(app)} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg shadow-lg shadow-indigo-100 transition-transform active:scale-95">JOINING LETTER</button>
+                                                                            ) : <button
+                                                                                onClick={() => openJoiningModal(app)}
+                                                                                disabled={!app.salaryLocked}
+                                                                                className={`px-3 py-1.5 text-[10px] font-bold rounded-lg shadow-lg transition-transform active:scale-95 ${!app.salaryLocked ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white shadow-indigo-100'}`}
+                                                                                title={app.salaryLocked ? "Generate Joining Letter" : "Assign and Lock salary first"}
+                                                                            >
+                                                                                JOINING LETTER
+                                                                            </button>
                                                                         ) : <span className="text-slate-200">/</span>}
                                                                     </td>
                                                                 </>
@@ -1925,92 +1936,101 @@ export default function Applicants() {
 
             {/* Salary Preview Modal */}
             {
-                showSalaryPreview && selectedApplicant && selectedApplicant.salarySnapshot && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
-                            {/* Header */}
-                            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Salary Structure</h3>
-                                    <p className="text-sm text-slate-500">{selectedApplicant.name} • {selectedApplicant.requirementId?.jobTitle}</p>
-                                </div>
-                                <button onClick={() => setShowSalaryPreview(false)} className="p-2 hover:bg-slate-200 rounded-full transition text-slate-500">
-                                    ✕
-                                </button>
-                            </div>
+                showSalaryPreview && selectedApplicant && (selectedApplicant.salarySnapshotId || selectedApplicant.salarySnapshot) && (() => {
+                    const snapshot = selectedApplicant.salarySnapshotId || selectedApplicant.salarySnapshot;
+                    const earnings = snapshot.earnings || [];
+                    const deductions = snapshot.employeeDeductions || snapshot.deductions || [];
+                    const takeHome = snapshot.breakdown?.takeHome || snapshot.takeHome?.monthly || snapshot.takeHome || 0;
+                    const ctcYearly = snapshot.ctc?.yearly || snapshot.ctc || 0;
+                    const grossMonthly = snapshot.breakdown?.grossA || snapshot.grossA?.monthly || snapshot.grossA || 0;
 
-                            {/* Body - Scrollable */}
-                            <div className="p-6 overflow-y-auto space-y-6">
-                                {/* Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    {/* Earnings */}
-                                    <div className="space-y-3">
-                                        <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-emerald-100 pb-2">Earnings (Monthly)</h4>
-                                        <div className="space-y-2">
-                                            {selectedApplicant.salarySnapshot.earnings.map((e, i) => (
-                                                <div key={i} className="flex justify-between text-sm group border-b border-dashed border-slate-100 pb-1 last:border-0">
-                                                    <span className="text-slate-600 group-hover:text-slate-900">{e.name}</span>
-                                                    <span className="font-medium text-slate-800">₹{e.monthlyAmount?.toLocaleString()}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-slate-800 mt-2">
-                                            <span>Gross Earnings</span>
-                                            <span>₹{(selectedApplicant.salarySnapshot.grossA?.monthly ?? selectedApplicant.salarySnapshot.grossA)?.toLocaleString()}</span>
-                                        </div>
+                    return (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+                                {/* Header */}
+                                <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-800">Salary Structure</h3>
+                                        <p className="text-sm text-slate-500">{selectedApplicant.name} • {selectedApplicant.requirementId?.jobTitle}</p>
                                     </div>
+                                    <button onClick={() => setShowSalaryPreview(false)} className="p-2 hover:bg-slate-200 rounded-full transition text-slate-500">
+                                        ✕
+                                    </button>
+                                </div>
 
-                                    {/* Deductions */}
-                                    <div className="space-y-3">
-                                        <h4 className="text-xs font-bold text-rose-600 uppercase tracking-wider border-b border-rose-100 pb-2">Deductions (Monthly)</h4>
-                                        <div className="space-y-2">
-                                            {selectedApplicant.salarySnapshot.employeeDeductions.length > 0 ? (
-                                                selectedApplicant.salarySnapshot.employeeDeductions.map((d, i) => (
+                                {/* Body - Scrollable */}
+                                <div className="p-6 overflow-y-auto space-y-6">
+                                    {/* Grid */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        {/* Earnings */}
+                                        <div className="space-y-3">
+                                            <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-emerald-100 pb-2">Earnings (Monthly)</h4>
+                                            <div className="space-y-2">
+                                                {earnings.map((e, i) => (
                                                     <div key={i} className="flex justify-between text-sm group border-b border-dashed border-slate-100 pb-1 last:border-0">
-                                                        <span className="text-slate-600 group-hover:text-slate-900">{d.name}</span>
-                                                        <span className="font-medium text-rose-600">-₹{d.monthlyAmount?.toLocaleString()}</span>
+                                                        <span className="text-slate-600 group-hover:text-slate-900">{e.name}</span>
+                                                        <span className="font-medium text-slate-800">₹{e.monthlyAmount?.toLocaleString()}</span>
                                                     </div>
-                                                ))
-                                            ) : (
-                                                <p className="text-xs text-slate-400 italic">No deductions</p>
-                                            )}
+                                                ))}
+                                            </div>
+                                            <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-slate-800 mt-2">
+                                                <span>Gross Earnings</span>
+                                                <span>₹{grossMonthly.toLocaleString()}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Deductions */}
+                                        <div className="space-y-3">
+                                            <h4 className="text-xs font-bold text-rose-600 uppercase tracking-wider border-b border-rose-100 pb-2">Deductions (Monthly)</h4>
+                                            <div className="space-y-2">
+                                                {deductions.length > 0 ? (
+                                                    deductions.map((d, i) => (
+                                                        <div key={i} className="flex justify-between text-sm group border-b border-dashed border-slate-100 pb-1 last:border-0">
+                                                            <span className="text-slate-600 group-hover:text-slate-900">{d.name}</span>
+                                                            <span className="font-medium text-rose-600">-₹{d.monthlyAmount?.toLocaleString()}</span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <p className="text-xs text-slate-400 italic">No deductions</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Summary Card */}
+                                    <div className="bg-slate-900 text-white rounded-xl p-5 shadow-lg ring-1 ring-white/10">
+                                        <div className="grid grid-cols-2 gap-4 text-center divide-x divide-slate-700/50">
+                                            <div>
+                                                <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-1">Monthly Net Pay</div>
+                                                <div className="text-2xl font-bold text-emerald-400">₹{takeHome.toLocaleString()}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-1">Annual CTC</div>
+                                                <div className="text-xl font-bold text-white">₹{ctcYearly.toLocaleString()}</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Summary Card */}
-                                <div className="bg-slate-900 text-white rounded-xl p-5 shadow-lg ring-1 ring-white/10">
-                                    <div className="grid grid-cols-2 gap-4 text-center divide-x divide-slate-700/50">
-                                        <div>
-                                            <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-1">Monthly Net Pay</div>
-                                            <div className="text-2xl font-bold text-emerald-400">₹{(selectedApplicant.salarySnapshot.takeHome?.monthly ?? selectedApplicant.salarySnapshot.takeHome)?.toLocaleString()}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-1">Annual CTC</div>
-                                            <div className="text-xl font-bold text-white">₹{(selectedApplicant.salarySnapshot.ctc?.yearly ?? selectedApplicant.salarySnapshot.ctc)?.toLocaleString()}</div>
-                                        </div>
-                                    </div>
+                                {/* Footer */}
+                                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                                    <button
+                                        onClick={() => { setShowSalaryPreview(false); openSalaryModal(selectedApplicant); }}
+                                        className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                    >
+                                        Edit Structure
+                                    </button>
+                                    <button
+                                        onClick={() => setShowSalaryPreview(false)}
+                                        className="px-6 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition shadow-lg"
+                                    >
+                                        Close
+                                    </button>
                                 </div>
-                            </div>
-
-                            {/* Footer */}
-                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-                                <button
-                                    onClick={() => { setShowSalaryPreview(false); openSalaryModal(selectedApplicant); }}
-                                    className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                                >
-                                    Edit Structure
-                                </button>
-                                <button
-                                    onClick={() => setShowSalaryPreview(false)}
-                                    className="px-6 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition shadow-lg"
-                                >
-                                    Close
-                                </button>
                             </div>
                         </div>
-                    </div>
-                )
+                    );
+                })()
             }
 
             {/* INTERVIEW MODAL */}

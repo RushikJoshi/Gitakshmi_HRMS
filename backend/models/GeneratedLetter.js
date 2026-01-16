@@ -9,7 +9,12 @@ const generatedLetterSchema = new mongoose.Schema({
     applicantId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Applicant',
-        required: true
+        required: false
+    },
+    employeeId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Employee',
+        required: false
     },
     templateId: {
         type: mongoose.Schema.Types.ObjectId,

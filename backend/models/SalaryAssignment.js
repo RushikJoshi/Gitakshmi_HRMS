@@ -15,7 +15,13 @@ const SalaryAssignmentSchema = new mongoose.Schema({
     employeeId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Employee',
-        required: true,
+        required: false,
+        index: true
+    },
+    applicantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Applicant',
+        required: false,
         index: true
     },
     salaryTemplateId: {
@@ -23,16 +29,20 @@ const SalaryAssignmentSchema = new mongoose.Schema({
         ref: 'SalaryTemplate',
         required: true
     },
+    ctcAnnual: { type: Number, required: true },
+    monthlyCTC: { type: Number, required: true },
+
+    // Breakup data (Editable until confirmed)
+    earnings: [{ name: String, monthlyAmount: Number, annualAmount: Number, componentCode: String }],
+    deductions: [{ name: String, monthlyAmount: Number, annualAmount: Number, componentCode: String }],
+    benefits: [{ name: String, monthlyAmount: Number, annualAmount: Number, componentCode: String }],
+    netSalaryMonthly: { type: Number },
+
     effectiveFrom: { type: Date, required: true },
-    effectiveTo: { type: Date, default: null }, // Null means current/indefinite
-    payFrequency: { type: String, default: 'Monthly', enum: ['Monthly'] },
-    status: { type: String, default: 'Active', enum: ['Active', 'Inactive'] },
+    effectiveTo: { type: Date, default: null },
+    isConfirmed: { type: Boolean, default: false },
     isCurrent: { type: Boolean, default: true },
-    // Snapshot of the template values at time of assignment (optional but good for audit)
-    assignmentSnapshot: {
-        annualCTC: Number,
-        monthlyCTC: Number
-    },
+
     assignedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Employee'

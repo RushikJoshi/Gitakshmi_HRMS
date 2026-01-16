@@ -17,14 +17,14 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
 
   // Extract offer data
   const offerData = {
-    refNo: applicant?.offerRefNo || `OFFER/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}`,
+    refNo: applicant?.offerRefNo || applicant?.offerRefCode || `OFFER/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}`,
     offerDate: applicant?.offerDate ? new Date(applicant.offerDate).toLocaleDateString('en-IN') : today,
-    location: applicant?.location || applicant?.workLocation || '',
+    location: applicant?.location || applicant?.workLocation || applicant?.tempAddress?.city || '',
     joiningDate: customData?.joining_date || (applicant?.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : ''),
-    name: applicant?.name || '',
-    designation: applicant?.currentDesignation || applicant?.requirementId?.jobTitle || '',
-    address: applicant?.workLocation || applicant?.address || '',
-    department: applicant?.department || applicant?.requirementId?.department || '',
+    name: applicant?.name || (applicant?.firstName ? `${applicant.firstName} ${applicant.lastName || ''}`.trim() : ''),
+    designation: applicant?.designation || applicant?.currentDesignation || applicant?.requirementId?.jobTitle || '',
+    address: applicant?.address || (applicant?.tempAddress ? `${applicant.tempAddress.line1}, ${applicant.tempAddress.city}` : ''),
+    department: applicant?.department || applicant?.requirementId?.department || (applicant?.departmentId?.name) || '',
     title: applicant?.title || ''
   };
 
@@ -36,17 +36,21 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
 
   // Process snapshot data
   const earnings = snapshot.earnings || [];
-  const deductions = snapshot.deductions || [];
+  // Combine all deductions for summary if needed, but usually we care about employee deductions for net pay
+  const employeeDeductions = snapshot.employeeDeductions || snapshot.deductions || [];
+  const employerDeductions = snapshot.employerDeductions || [];
   const benefits = snapshot.benefits || [];
 
   const findVal = (list, patterns) => {
     const found = list.find(item => {
       const n = (item.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      return patterns.some(p => n.includes(p));
+      const c = (item.code || item.componentCode || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return patterns.some(p => n.includes(p) || c.includes(p));
     });
     return {
-      monthly: found ? (found.amount / 12) : 0,
-      annual: found ? found.amount : 0
+      monthly: found ? (found.monthlyAmount || (found.annualAmount / 12) || 0) : 0,
+      annual: found ? (found.annualAmount || (found.monthlyAmount * 12) || 0) : 0,
+      name: found ? found.name : ''
     };
   };
 
@@ -55,19 +59,33 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
   const conveyance = findVal(earnings, ['conveyance', 'transport', 'travel']);
   const medical = findVal(earnings, ['medical']);
   const special = findVal(earnings, ['special', 'other']);
-  const pf = findVal(deductions, ['pf', 'provident']);
-  const pt = findVal(deductions, ['professional', 'pt', 'tax']);
-  const esic = findVal(deductions, ['esic', 'stateinsurance']);
+  const transport = findVal(earnings, ['transportation', 'transportallow']);
+  const education = findVal(earnings, ['education']);
+  const books = findVal(earnings, ['books', 'periodicals']);
+  const uniform = findVal(earnings, ['uniform']);
+  const mobile = findVal(earnings, ['mobile', 'phone']);
+  const compensatory = findVal(earnings, ['compensatory']);
 
-  const totalEarningsAnnual = earnings.reduce((sum, e) => sum + e.amount, 0);
-  const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + b.amount, 0);
-  const totalDeductionsAnnual = deductions.reduce((sum, d) => sum + d.amount, 0);
+  const pf = findVal(employeeDeductions, ['pf', 'provident']);
+  const pt = findVal(employeeDeductions, ['professional', 'pt', 'tax']);
+  const esic = findVal(employeeDeductions, ['esic', 'stateinsurance']);
+
+  const totalEarningsAnnual = earnings.reduce((sum, e) => sum + (e.annualAmount || (e.monthlyAmount * 12) || 0), 0);
+  const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + (b.annualAmount || (b.monthlyAmount * 12) || 0), 0);
+  const totalEmployeeDeductionsAnnual = employeeDeductions.reduce((sum, d) => sum + (d.annualAmount || (d.monthlyAmount * 12) || 0), 0);
 
   const fmt = (val) => Math.round(val || 0).toLocaleString('en-IN');
+  const grossMonthly = totalEarningsAnnual / 12;
+  const grossAnnual = totalEarningsAnnual;
+  const netMonthly = (totalEarningsAnnual - totalEmployeeDeductionsAnnual) / 12;
+  const netAnnual = totalEarningsAnnual - totalEmployeeDeductionsAnnual;
+  const totalCTCMonthly = (totalEarningsAnnual + totalBenefitsAnnual) / 12;
+  const totalCTCAnnual = totalEarningsAnnual + totalBenefitsAnnual;
 
-  return {
+  const finalData = {
     offer_ref_code: safeValue(customData?.offer_ref_code, offerData.refNo, ''),
     employee_name: safeValue(customData?.employee_name, offerData.name, ''),
+    name: offerData.name,
     designation: safeValue(customData?.designation, offerData.designation, ''),
     department: safeValue(customData?.department, offerData.department, ''),
     location: safeValue(customData?.location, offerData.location, ''),
@@ -77,8 +95,10 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
     father_name: safeValue(customData?.father_name, applicant?.fatherName, ''),
 
     // Salary Placeholders
-    annual_ctc: fmt(totalEarningsAnnual + totalBenefitsAnnual),
-    monthly_ctc: fmt((totalEarningsAnnual + totalBenefitsAnnual) / 12),
+    annual_ctc: fmt(totalCTCAnnual),
+    monthly_ctc: fmt(totalCTCMonthly),
+    total_ctc_annual: fmt(totalCTCAnnual),
+    total_ctc_monthly: fmt(totalCTCMonthly),
 
     basic_monthly: fmt(basic.monthly),
     basic_annual: fmt(basic.annual),
@@ -95,6 +115,24 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
     special_monthly: fmt(special.monthly),
     special_annual: fmt(special.annual),
 
+    transport_monthly: fmt(transport.monthly),
+    transport_annual: fmt(transport.annual),
+
+    education_monthly: fmt(education.monthly),
+    education_annual: fmt(education.annual),
+
+    books_monthly: fmt(books.monthly),
+    books_annual: fmt(books.annual),
+
+    uniform_monthly: fmt(uniform.monthly),
+    uniform_annual: fmt(uniform.annual),
+
+    mobile_monthly: fmt(mobile.monthly),
+    mobile_annual: fmt(mobile.annual),
+
+    compensatory_monthly: fmt(compensatory.monthly),
+    compensatory_annual: fmt(compensatory.annual),
+
     pf_monthly: fmt(pf.monthly),
     pf_annual: fmt(pf.annual),
 
@@ -104,12 +142,24 @@ function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
     esic_monthly: fmt(esic.monthly),
     esic_annual: fmt(esic.annual),
 
-    gross_monthly: fmt(totalEarningsAnnual / 12),
-    gross_annual: fmt(totalEarningsAnnual),
+    gross_monthly: fmt(grossMonthly),
+    gross_annual: fmt(grossAnnual),
+    gross_a_monthly: fmt(grossMonthly),
+    gross_a_annual: fmt(grossAnnual),
 
-    net_monthly: fmt((totalEarningsAnnual - totalDeductionsAnnual) / 12),
-    net_annual: fmt(totalEarningsAnnual - totalDeductionsAnnual)
+    net_monthly: fmt(netMonthly),
+    net_annual: fmt(netAnnual),
+    take_home_monthly: fmt(netMonthly),
+    take_home_annual: fmt(netAnnual)
   };
+
+  // Add uppercase versions of all keys for template flexibility
+  const upperData = {};
+  Object.keys(finalData).forEach(key => {
+    upperData[key.toUpperCase()] = finalData[key];
+  });
+
+  return { ...finalData, ...upperData };
 }
 
 module.exports = {
