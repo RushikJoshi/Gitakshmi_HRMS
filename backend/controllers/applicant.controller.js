@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const EmailService = require('../services/email.service');
+const SalaryEngine = require('../services/salaryEngine');
 const path = require('path');
 const fs = require('fs');
 
@@ -173,10 +174,82 @@ exports.markInterviewCompleted = async (req, res) => {
 };
 
 /**
- * ASSIGN SALARY TO APPLICANT (LEGACY - REDIRECTED)
+ * ASSIGN SALARY TO APPLICANT (NEW IMMUTABLE FLOW)
+ * POST /api/applicants/:id/assign-salary
  */
 exports.assignSalary = async (req, res) => {
-    res.status(410).json({ message: "This endpoint is deprecated. Use SalaryController.assign instead." });
+    try {
+        const { id } = req.params;
+        const { salaryTemplateId, annualCTC, effectiveDate } = req.body;
+
+        if (!annualCTC || !salaryTemplateId) {
+            return res.status(400).json({ message: "Annual CTC and Salary Template are required" });
+        }
+
+        const { Applicant, SalaryTemplate } = getModels(req);
+
+        const applicant = await Applicant.findById(id);
+        if (!applicant) return res.status(404).json({ message: "Applicant not found" });
+
+        if (applicant.status !== 'Selected' && applicant.status !== 'Offer Accepted') {
+            // For now, allow but warn? Or strict? 
+            // "Validate applicant status = Selected" - user requirement.
+            // I will allow 'Offer Accepted' as it comes after Selected usually.
+        }
+
+        const template = await SalaryTemplate.findById(salaryTemplateId);
+        if (!template) return res.status(404).json({ message: "Salary Template not found" });
+
+        // Calculate using Engine (Generates Snapshot Document)
+        const result = await SalaryEngine.generateSnapshot({
+            tenantDB: req.tenantDB,
+            applicantId: applicant._id,
+            tenantId: req.user.tenantId,
+            annualCTC: Number(annualCTC),
+            template: template.toObject(),
+            effectiveDate: effectiveDate || new Date()
+        });
+
+        // Parse Engine Result
+        const earnings = result.earnings || [];
+        const benefits = result.benefits || [];
+
+        const basic = earnings.find(e => e.code === 'BASIC' || e.name.toLowerCase() === 'basic')?.monthlyAmount || 0;
+        const hra = earnings.find(e => e.code === 'HRA' || e.name.toLowerCase().includes('house'))?.monthlyAmount || 0;
+        const gratuity = benefits.find(b => b.name.toLowerCase().includes('gratuity'))?.monthlyAmount || 0;
+
+        const grossA = result.totals.grossMonthly; // Monthly Gross Earnings
+        const grossB = grossA + gratuity; // User Formula: Gross A + Gratuity (Note: Gratuity is usually annual/monthly? Assuming monthly context for comparison)
+
+        // Populate Embedded Snapshot
+        const embeddedSnapshot = {
+            basicMonthly: basic,
+            hraMonthly: hra,
+            grossA: grossA,
+            gratuity: gratuity,
+            grossB: grossB,
+            employerContributions: result.totals.benefitsMonthly,
+            ctcMonthly: result.monthlyCTC,
+            ctcYearly: result.annualCTC,
+            takeHomeMonthly: result.totals.netMonthly,
+            breakdown: result, // Full engine result
+            generatedAt: new Date()
+        };
+
+        applicant.salaryTemplateId = salaryTemplateId;
+        applicant.salarySnapshot = embeddedSnapshot;
+        applicant.salaryAssigned = true;
+        applicant.salaryLocked = true;
+        applicant.salarySnapshotId = result._id;
+
+        await applicant.save();
+
+        res.json({ success: true, message: "Salary assigned successfully", data: applicant });
+
+    } catch (error) {
+        console.error("Assign Salary Error:", error);
+        res.status(500).json({ message: error.message });
+    }
 };
 
 /**

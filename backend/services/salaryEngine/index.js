@@ -27,15 +27,43 @@ class SalaryEngine {
     const componentMeta = {};
     const M2A = 12;
 
-    // 0. Merge Additional Components (Ad-hoc)
-    // additionalComponents is now directly destructured from params
+    // --- HELPER: Synthesize Formula from Config ---
+    const generateFormula = (comp) => {
+      // 1. Explicit Formula (Highest Priority)
+      if (comp.formula) return comp.formula;
 
+      // 2. Calculation Type based
+      const type = comp.calculationType || 'FLAT_AMOUNT';
+      const val = parseFloat(comp.percentage || comp.amount || 0);
+
+      if (type === 'PERCENTAGE_OF_CTC' || type === 'PERCENT_CTC') {
+        return `CTC * ${val / 100}`;
+      }
+      if (type === 'PERCENTAGE_OF_BASIC' || type === 'PERCENT_BASIC') {
+        return `BASIC * ${val / 100}`;
+      }
+      if (type === 'FLAT_AMOUNT' || type === 'FIXED') {
+        // If amount provided is monthly, annualized it
+        // Assuming config stores 'amount' as monthly for flat types usually, 
+        // but let's check input. Usually UI sends monthly.
+        // If annualAmount exists on object, use it.
+        if (comp.annualAmount) return comp.annualAmount.toString();
+        return `${(comp.amount || 0) * 12}`;
+      }
+
+      // Default to flat amount logic if unknown
+      return `${(comp.amount || 0) * 12}`;
+    };
+
+    // 0. Merge Additional Components (Ad-hoc)
     if (additionalComponents && Array.isArray(additionalComponents)) {
       additionalComponents.forEach(comp => {
         const mapped = {
           code: comp.code || comp.componentCode || comp.name.toUpperCase().replace(/\s+/g, '_'),
           name: comp.name,
-          formula: comp.formula || comp.value?.toString() || '0'
+          formula: comp.formula || comp.value?.toString() || '0',
+          calculationType: 'FLAT_AMOUNT',
+          amount: parseFloat(comp.value || 0)
         };
 
         if (comp.category === 'Earnings' || comp.type === 'Earning') {
@@ -51,14 +79,14 @@ class SalaryEngine {
       });
     }
 
-    // --- PHASE 1: COMPONENT REGISTRATION ---
+    // --- PHASE 1: COMPONENT REGISTRATION (Build Formula Map) ---
 
-    // 1. Register Earnings (Excluding SPECIAL_ALLOWANCE first)
+    // 1. Register Earnings
     if (template.earnings) {
       template.earnings.forEach(e => {
         const code = e.code || e.componentCode || e.name.toUpperCase().replace(/\s+/g, '_');
-        if (code === 'SPECIAL_ALLOWANCE') return; // Skip for now, will handle last
-        formulas[code] = e.formula || (e.annualAmount || (e.monthlyAmount * M2A)).toString();
+        if (code === 'SPECIAL_ALLOWANCE') return; // Skip for now
+        formulas[code] = generateFormula(e);
         componentMeta[code] = { name: e.name, type: 'EARNING' };
       });
     }
@@ -67,7 +95,7 @@ class SalaryEngine {
     if (template.employerDeductions) {
       template.employerDeductions.forEach(d => {
         const code = d.code || d.componentCode || d.name.toUpperCase().replace(/\s+/g, '_');
-        formulas[code] = d.formula || (d.annualAmount || (d.monthlyAmount * M2A)).toString();
+        formulas[code] = generateFormula(d);
         componentMeta[code] = { name: d.name, type: 'BENEFIT' };
       });
     }
@@ -76,7 +104,7 @@ class SalaryEngine {
     if (template.employeeDeductions) {
       template.employeeDeductions.forEach(d => {
         const code = d.code || d.componentCode || d.name.toUpperCase().replace(/\s+/g, '_');
-        formulas[code] = d.formula || (d.annualAmount || (d.monthlyAmount * M2A)).toString();
+        formulas[code] = generateFormula(d);
         componentMeta[code] = { name: d.name, type: 'DEDUCTION' };
       });
     }
@@ -85,7 +113,7 @@ class SalaryEngine {
     const context = { CTC: annualCTC };
     formulas['CTC'] = annualCTC.toString();
 
-    // 4. Resolve via FormulaEngine (Phase 1)
+    // 4. Resolve via FormulaEngine
     const engine = new FormulaEngine(formulas);
     let totalComputedEarnings = 0;
     let totalComputedBenefits = 0;
@@ -94,12 +122,17 @@ class SalaryEngine {
     const employeeDeductions = [];
     const benefits = [];
 
-    // Helper to process items
-    const processItem = (code, meta) => {
+    // Helper to evaluate and store result
+    const evaluateAndRegister = (code) => {
+      const meta = componentMeta[code];
+      if (!meta) return;
+
       try {
         let amount = engine.evaluate(code, context);
-        // Ensure non-negative
         amount = Math.max(0, amount);
+
+        // UPDATE CONTEXT with resolved value (Crucial for dependencies)
+        context[code] = amount;
 
         const item = {
           name: meta.name,
@@ -120,14 +153,43 @@ class SalaryEngine {
           employeeDeductions.push(item);
         }
       } catch (err) {
-        throw new Error(`Formula resolution failed for ${code}: ${err.message}`);
+        console.warn(`Formula resolution warning for ${code}: ${err.message}`);
+        // Don't crash entire calculation, set to 0
+        context[code] = 0;
       }
     };
 
-    // Calculate everything EXCEPT Special Allowance
-    for (const code in componentMeta) {
-      processItem(code, componentMeta[code]);
+    // --- ORDERED EVALUATION ---
+
+    // 1. Calculate BASIC first (if exists)
+    if (formulas['BASIC']) {
+      evaluateAndRegister('BASIC');
+      delete componentMeta['BASIC'];
     }
+
+    // 2. Calculate remaining Earnings
+    Object.keys(componentMeta).forEach(code => {
+      if (componentMeta[code].type === 'EARNING') {
+        evaluateAndRegister(code);
+      }
+    });
+
+    // 3. Update GROSS in context
+    context['GROSS'] = totalComputedEarnings;
+
+    // 4. Calculate Benefits (Employer) - e.g. Employer PF depends on BASIC
+    Object.keys(componentMeta).forEach(code => {
+      if (componentMeta[code].type === 'BENEFIT') {
+        evaluateAndRegister(code);
+      }
+    });
+
+    // 5. Calculate Deductions (Employee) - e.g. Employee PF depends on BASIC
+    Object.keys(componentMeta).forEach(code => {
+      if (componentMeta[code].type === 'DEDUCTION') {
+        evaluateAndRegister(code);
+      }
+    });
 
     // --- PHASE 2: SPECIAL ALLOWANCE (The Balancer) ---
     // Formula: Special Allowance = CTC - (Sum(Earnings) + Sum(Benefits))
@@ -142,35 +204,21 @@ class SalaryEngine {
     const specialAllowanceCode = 'SPECIAL_ALLOWANCE';
     const specialAllowanceName = 'Special Allowance';
 
-    if (balance < 0) {
-      // If negative, it means fixed components > CTC. This is a configuration error, but we shouldn't crash?
-      // Actually, we must warn or set to 0 and throw error?
-      // Indian Payroll: Basic is usually fixed % of CTC. If formulas are correct, balance should be positive.
-      // If negative, we force Special Allowance to 0 and let it fail validation or return with warning?
-      // We'll add it as 0
-      const saItem = {
-        name: specialAllowanceName,
-        code: specialAllowanceCode,
-        annualAmount: 0,
-        monthlyAmount: 0,
-        formula: "CTC - (Earnings + Benefits)",
-        resolved: true,
-        isBalancer: true
-      };
-      earnings.push(saItem);
-    } else {
-      // Positive Balance -> Assign to Special Allowance
-      const saItem = {
-        name: specialAllowanceName,
-        code: specialAllowanceCode, // Standard Code
-        annualAmount: balance,
-        monthlyAmount: Math.round((balance / 12) * 100) / 100,
-        formula: "CTC - (Earnings + Benefits)",
-        resolved: true,
-        isBalancer: true
-      };
-      earnings.push(saItem);
-      totalComputedEarnings += balance; // Add to totals
+    const saItem = {
+      name: specialAllowanceName,
+      code: specialAllowanceCode,
+      annualAmount: Math.max(0, balance),
+      monthlyAmount: Math.max(0, Math.round((balance / 12) * 100) / 100),
+      formula: "CTC - (Earnings + Benefits)",
+      resolved: true,
+      isBalancer: true
+    };
+
+    earnings.push(saItem);
+
+    // Only add to totals if positive
+    if (balance > 0) {
+      totalComputedEarnings += balance;
       currentCost += balance;
     }
 

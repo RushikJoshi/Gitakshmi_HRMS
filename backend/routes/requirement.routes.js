@@ -32,11 +32,8 @@ router.get('/applicants', reqCtrl.getApplicants);
 // router.post('/offer-letter/:applicantId', offerCtrl.generateOfferLetter);
 
 // Applicant Salary Assignment Routes (HR Only)
-router.post('/applicants/:id/assign-salary', (req, res, next) => {
-    // Adapter for legacy route to new controller
-    req.body.applicantId = req.params.id;
-    next();
-}, salaryCtrl.assign);
+// Applicant Salary Assignment Routes (HR Only)
+router.post('/applicants/:id/assign-salary', applicantCtrl.assignSalary);
 router.patch('/applicants/:id/status', auth.authenticate, auth.requireHr, applicantCtrl.updateApplicantStatus);
 router.get('/applicants/:id', auth.authenticate, auth.requireHr, applicantCtrl.getApplicantById);
 router.get('/applicants/:id/salary', auth.authenticate, auth.requireHr, applicantCtrl.getSalary);

@@ -6,7 +6,7 @@ import OfferLetterPreview from '../../components/OfferLetterPreview';
 import AssignSalaryModal from '../../components/AssignSalaryModal';
 import { DatePicker, Pagination, Select } from 'antd';
 import dayjs from 'dayjs';
-import { Eye, Download, Edit2, RefreshCw, IndianRupee, Upload, FileText, CheckCircle, Settings, Plus, Trash2, X, GripVertical, Star, XCircle, Clock } from 'lucide-react';
+import { Eye, Download, Edit2, RefreshCw, IndianRupee, Upload, FileText, CheckCircle, Settings, Plus, Trash2, X, GripVertical, Star, XCircle, Clock, ShieldCheck, Lock } from 'lucide-react';
 
 export default function Applicants() {
     const navigate = useNavigate();
@@ -1050,6 +1050,24 @@ export default function Applicants() {
         loadApplicants(); // Refresh list to show updated salary status
     };
 
+    const confirmSalary = async (applicant) => {
+        if (!confirm("Confirm and Lock this salary structure? This will create an immutable snapshot and enable letter generation.")) return;
+        try {
+            setLoading(true);
+            await api.post('/payroll-engine/salary/confirm', {
+                applicantId: applicant._id,
+                reason: 'JOINING'
+            });
+            alert("✅ Salary confirmed and locked!");
+            loadApplicants();
+        } catch (err) {
+            console.error(err);
+            alert("❌ Lock failed: " + (err.response?.data?.message || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleJoiningPreview = async () => {
         if (!joiningTemplateId) {
             alert('Please select a Joining Letter Template');
@@ -1512,22 +1530,25 @@ export default function Applicants() {
                                                                     </td>
                                                                     <td className="px-6 py-4 align-top">
                                                                         {app.status === 'Selected' ? (
-                                                                            (app.salarySnapshotId?.ctc || app.salarySnapshot?.ctc?.yearly) > 0 ? (
-                                                                                <div className="flex items-center gap-2 group/sal">
-                                                                                    {(() => {
-                                                                                        const snap = app.salarySnapshotId || app.salarySnapshot;
-                                                                                        const ctc = snap?.ctc?.yearly || snap?.ctc || 0;
-                                                                                        return <div className="text-[11px] font-black text-slate-800 bg-slate-100 px-2 py-1 rounded-lg">₹{(ctc / 100000).toFixed(1)}L <span className="text-[9px] text-slate-400">/YR</span></div>
-                                                                                    })()}
-                                                                                    <button onClick={() => openSalaryModal(app)} className="opacity-0 group-hover/sal:opacity-100 transition-opacity p-1 text-slate-400 hover:text-blue-600"><Edit2 size={12} /></button>
+                                                                            (app.salarySnapshot || app.salaryAssigned) ? (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <button
+                                                                                        onClick={() => { setSelectedApplicant(app); setShowSalaryPreview(true); }}
+                                                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-600 transition shadow-sm group"
+                                                                                        title="View Salary Breakdown"
+                                                                                    >
+                                                                                        <Eye size={14} className="text-slate-400 group-hover:text-blue-500" />
+                                                                                        <span className="text-[11px] font-bold">View Salary</span>
+                                                                                    </button>
                                                                                 </div>
                                                                             ) : (
                                                                                 <button
                                                                                     onClick={() => openSalaryModal(app)}
-                                                                                    className="text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-100 cursor-pointer"
-                                                                                    title="Set CTC"
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 transition shadow-sm"
+                                                                                    title="Assign Salary Structure"
                                                                                 >
-                                                                                    SET CTC
+                                                                                    <IndianRupee size={14} />
+                                                                                    <span className="text-[11px] font-bold">Assign Salary</span>
                                                                                 </button>
                                                                             )
                                                                         ) : <span className="text-slate-300">N/A</span>}
@@ -1541,9 +1562,9 @@ export default function Applicants() {
                                                                                 </div>
                                                                             ) : <button
                                                                                 onClick={() => openJoiningModal(app)}
-                                                                                disabled={!app.salaryLocked}
-                                                                                className={`px-3 py-1.5 text-[10px] font-bold rounded-lg shadow-lg transition-transform active:scale-95 ${!app.salaryLocked ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white shadow-indigo-100'}`}
-                                                                                title={app.salaryLocked ? "Generate Joining Letter" : "Assign and Lock salary first"}
+                                                                                disabled={(!app.salarySnapshot && !app.salaryAssigned)}
+                                                                                className={`px-3 py-1.5 text-[10px] font-bold rounded-lg shadow-lg transition-transform active:scale-95 ${(app.salarySnapshot || app.salaryAssigned) ? 'bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'}`}
+                                                                                title={(app.salarySnapshot || app.salaryAssigned) ? "Generate Joining Letter" : "Assign salary before generating joining letter"}
                                                                             >
                                                                                 JOINING LETTER
                                                                             </button>

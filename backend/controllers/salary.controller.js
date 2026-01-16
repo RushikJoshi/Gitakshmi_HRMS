@@ -34,6 +34,11 @@ const SalaryController = {
                 additionalComponents: additionalComponents || []
             });
 
+            // Frontend expects 'deductions' property
+            if (resolved.employeeDeductions) {
+                resolved.deductions = resolved.employeeDeductions;
+            }
+
             res.json({
                 success: true,
                 data: resolved
@@ -162,7 +167,9 @@ const SalaryController = {
             const SalaryTemplate = tenantDB.model('SalaryTemplate');
 
             let targetId = employeeId || applicantId;
-            let query = assignmentId ? { _id: assignmentId } : { employeeId: targetId, isCurrent: true };
+            let query = assignmentId
+                ? { _id: assignmentId }
+                : (employeeId ? { employeeId: targetId, isCurrent: true } : { applicantId: targetId, isCurrent: true });
 
             const assignment = await SalaryAssignment.findOne(query);
 

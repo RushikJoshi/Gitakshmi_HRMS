@@ -18,8 +18,8 @@ async function seedDefaultComponents(tenantDB, tenantId) {
 
   const components = [
     // Monthly Earnings
-    { name: 'Basic', payslipName: 'Basic', earningType: 'Basic', calculationType: 'PERCENTAGE_OF_CTC', percentage: 0, isTaxable: true, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
-    { name: 'House Rent Allowance', payslipName: 'HRA', earningType: 'HRA', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 0, isTaxable: true, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
+    { name: 'Basic', payslipName: 'Basic', earningType: 'Basic', calculationType: 'PERCENTAGE_OF_CTC', percentage: 50, isTaxable: true, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
+    { name: 'House Rent Allowance', payslipName: 'HRA', earningType: 'HRA', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 40, isTaxable: true, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
     { name: 'Medical Reimbursement', payslipName: 'Med. Reimb.', earningType: 'Medical', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: false, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
     { name: 'Transport Allowance', payslipName: 'Transport', earningType: 'Transport', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: true, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
     { name: 'Education Allowance', payslipName: 'Education', earningType: 'Education', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: false, isProRataBasis: true, includeInSalaryStructure: true, showInPayslip: true },
@@ -34,14 +34,14 @@ async function seedDefaultComponents(tenantDB, tenantId) {
     { name: 'Leave Pay', payslipName: 'Leave Pay', earningType: 'Annual Benefit', calculationType: 'PERCENTAGE_OF_CTC', percentage: 0, isTaxable: true, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false },
 
     // Employee-side Deductions
-    { name: 'Provident Fund (Employee)', payslipName: 'PF', earningType: 'Employee Contribution', type: 'DEDUCTION', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true, epf: { enabled: true, rule: 'ALWAYS' } },
+    { name: 'Provident Fund (Employee)', payslipName: 'PF', earningType: 'Employee Contribution', type: 'DEDUCTION', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 12, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true, epf: { enabled: true, rule: 'ALWAYS' } },
     { name: 'Income Tax', payslipName: 'TDS', earningType: 'Statutory', type: 'DEDUCTION', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true },
-    { name: 'Professional Tax', payslipName: 'Prof. Tax', earningType: 'Statutory', type: 'DEDUCTION', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true },
-    { name: 'ESI (Employee)', payslipName: 'ESI', earningType: 'Employee Contribution', type: 'DEDUCTION', calculationType: 'PERCENTAGE_OF_CTC', percentage: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true, esi: { enabled: true } },
+    { name: 'Professional Tax', payslipName: 'Prof. Tax', earningType: 'Statutory', type: 'DEDUCTION', calculationType: 'FLAT_AMOUNT', amount: 200, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true },
+    { name: 'ESI (Employee)', payslipName: 'ESI', earningType: 'Employee Contribution', type: 'DEDUCTION', calculationType: 'PERCENTAGE_OF_CTC', percentage: 0.75, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: false, showInPayslip: true, esi: { enabled: true } },
 
     // Employer Contributions (part of CTC, do not affect net salary)
-    { name: 'Provident Fund (Employer)', payslipName: 'EPF (ER)', earningType: 'Employer Contribution', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false, epf: { enabled: true, rule: 'ALWAYS' } },
-    { name: 'Gratuity', payslipName: 'Gratuity', earningType: 'Retiral Benefit', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false },
+    { name: 'Provident Fund (Employer)', payslipName: 'EPF (ER)', earningType: 'Employer Contribution', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 12, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false, epf: { enabled: true, rule: 'ALWAYS' } },
+    { name: 'Gratuity', payslipName: 'Gratuity', earningType: 'Retiral Benefit', calculationType: 'PERCENTAGE_OF_BASIC', percentage: 4.81, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false },
     { name: 'Medical Insurance (Employer)', payslipName: 'Employer Med. Ins.', earningType: 'Employer Benefit', calculationType: 'FLAT_AMOUNT', amount: 0, isTaxable: false, isProRataBasis: false, includeInSalaryStructure: true, showInPayslip: false }
   ];
 

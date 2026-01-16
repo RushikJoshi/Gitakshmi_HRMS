@@ -330,7 +330,7 @@ exports.create = async (req, res) => {
     const format = tenant?.meta?.empCodeFormat || "COMP_DEPT_NUM";
     const allowOverride = tenant?.meta?.empCodeAllowOverride || false;
 
-    const { firstName, lastName, department, customEmployeeId, departmentId, joiningDate, status, lastStep, ...restBody } = req.body;
+    const { firstName, lastName, department, customEmployeeId, departmentId, joiningDate, status, lastStep, applicantId, ...restBody } = req.body;
 
     let finalEmployeeId;
 
@@ -380,7 +380,47 @@ exports.create = async (req, res) => {
       createData.joiningDate = new Date(); // Default to now
     }
 
+    // --- NEW: Copy Salary Info from Applicant (Onboarding) ---
+    let applicantSnapshotId = null;
+    if (applicantId) {
+      try {
+        const Applicant = req.tenantDB.model('Applicant');
+        const applicant = await Applicant.findById(applicantId);
+
+        if (applicant) {
+          // 1. Copy Template ID
+          if (applicant.salaryTemplateId) {
+            createData.salaryTemplateId = applicant.salaryTemplateId;
+          }
+          // 2. Copy Snapshot Link (The immutable snapshot created during assignment)
+          if (applicant.salarySnapshot && applicant.salarySnapshot._id) {
+            applicantSnapshotId = applicant.salarySnapshot._id;
+            createData.currentSalarySnapshotId = applicantSnapshotId;
+            createData.currentSnapshotId = applicantSnapshotId; // Redundant field in schema, keeping sync
+            createData.salarySnapshots = [applicantSnapshotId];
+            createData.salaryAssigned = true;
+            createData.salaryLocked = true;
+          }
+        }
+      } catch (appErr) {
+        console.error("Error fetching applicant for onboarding:", appErr);
+      }
+    }
+
     const emp = await Employee.create(createData);
+
+    // --- NEW: Update Snapshot Ownership ---
+    if (applicantSnapshotId && emp) {
+      try {
+        const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
+        await EmployeeSalarySnapshot.findByIdAndUpdate(applicantSnapshotId, {
+          employee: emp._id
+        });
+        console.log(`[ONBOARDING] Linked Snapshot ${applicantSnapshotId} to Employee ${emp._id}`);
+      } catch (snapErr) {
+        console.error("Failed to update snapshot ownership:", snapErr);
+      }
+    }
 
     // Initialize Leave Balances if policy provided
     if (restBody.leavePolicy) {

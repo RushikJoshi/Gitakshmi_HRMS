@@ -609,37 +609,37 @@ exports.createTemplate = async (req, res) => {
             const monthlyBasic = Number((annualCTC / 12 * 0.5).toFixed(2));
             const monthlyDearness = Number((annualCTC / 12 * 0.3).toFixed(2));
             const monthlyAllowance = Number((annualCTC / 12 * 0.2).toFixed(2));
-            
+
             finalEarnings = [
-                { 
-                    name: 'Basic', 
+                {
+                    name: 'Basic',
                     monthlyAmount: monthlyBasic,
                     annualAmount: Number((monthlyBasic * 12).toFixed(2)),
                     calculationType: 'FIXED',
                     percentage: 0,
-                    proRata: true, 
+                    proRata: true,
                     taxable: true,
                     isRemovable: false,
                     enabled: true
                 },
-                { 
-                    name: 'Dearness Allowance', 
+                {
+                    name: 'Dearness Allowance',
                     monthlyAmount: monthlyDearness,
                     annualAmount: Number((monthlyDearness * 12).toFixed(2)),
                     calculationType: 'FIXED',
                     percentage: 0,
-                    proRata: true, 
+                    proRata: true,
                     taxable: true,
                     isRemovable: true,
                     enabled: true
                 },
-                { 
-                    name: 'Allowance', 
+                {
+                    name: 'Allowance',
                     monthlyAmount: monthlyAllowance,
                     annualAmount: Number((monthlyAllowance * 12).toFixed(2)),
                     calculationType: 'FIXED',
                     percentage: 0,
-                    proRata: false, 
+                    proRata: false,
                     taxable: true,
                     isRemovable: true,
                     enabled: true
@@ -694,7 +694,7 @@ exports.createTemplate = async (req, res) => {
 
         // 6. Ensure calculated earnings have required fields
         let templateEarnings = Array.isArray(calculated.earnings) ? calculated.earnings : finalEarnings;
-        
+
         // Validate and clean earnings - add any missing schema fields
         if (!Array.isArray(templateEarnings) || templateEarnings.length === 0) {
             console.warn(`[CREATE_TEMPLATE] No earnings found, using finalEarnings:`, finalEarnings);
@@ -776,17 +776,26 @@ exports.getTemplates = async (req, res) => {
         // Get model from tenantDB (ensure correct model registration)
         const { SalaryTemplate } = getModels(req);
 
-        // Query with tenant isolation - fetch all templates (not filtering by isActive since schema may not have it)
+        // Query with tenant isolation - fetch all templates
         const templates = await SalaryTemplate.find({ tenantId })
+            .select('_id templateName annualCTC createdAt') // optimize select
             .sort({ createdAt: -1 })
-            .lean(); // Use lean() for better performance
+            .lean();
 
         console.log(`[GET_TEMPLATES] Found ${templates.length} templates for tenant ${tenantId}`);
+
+        // Map to requested structure
+        const mappedTemplates = templates.map(t => ({
+            _id: t._id,
+            name: t.templateName, // MAP templateName to name
+            annualCTC: t.annualCTC,
+            createdAt: t.createdAt
+        }));
 
         // Return response in correct format
         return res.status(200).json({
             success: true,
-            data: templates
+            data: mappedTemplates
         });
     } catch (error) {
         console.error('[GET_TEMPLATES] Error:', error);
@@ -1028,7 +1037,7 @@ exports.updateTemplate = async (req, res) => {
 
         // 7. Ensure calculated earnings have required fields
         let updatedEarnings = Array.isArray(calculated.earnings) ? calculated.earnings : template.earnings;
-        
+
         // Validate and clean earnings
         if (!Array.isArray(updatedEarnings) || updatedEarnings.length === 0) {
             updatedEarnings = template.earnings;
