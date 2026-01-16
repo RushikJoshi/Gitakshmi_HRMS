@@ -38,6 +38,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-organizational-chart": "^2.2.1",
+    "react-quill": "^2.0.0",
     "react-router-dom": "^7.9.6"
   },
   "devDependencies": {

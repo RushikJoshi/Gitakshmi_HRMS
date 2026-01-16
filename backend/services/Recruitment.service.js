@@ -16,34 +16,80 @@ class RecruitmentService {
     }
 
     async createRequirement(tenantId, data, userId) {
-        const { Requirement } = await this.getModels(tenantId);
-        const requirement = new Requirement({
-            ...data,
-            tenant: tenantId,
-            createdBy: userId
-        });
-        return await requirement.save();
+        try {
+            console.log('[DEBUG] createRequirement START', { tenantId, userId });
+            const { Requirement } = await this.getModels(tenantId);
+
+            // Auto-generate Job ID
+            const db = await getTenantDB(tenantId);
+            let Counter;
+
+            console.log('[DEBUG] Retrieving Counter model...');
+            // Check if model exists safely
+            if (db.models.Counter) {
+                Counter = db.model('Counter');
+            } else {
+                console.log('[DEBUG] Counter model not found on DB, registering manually...');
+                const CounterSchema = require('../models/Counter');
+                Counter = db.model('Counter', CounterSchema);
+            }
+
+            console.log('[DEBUG] Incrementing Counter for Tenant:', tenantId);
+            const counter = await Counter.findOneAndUpdate(
+                { key: `job_opening_id_${tenantId}` }, // Tenant-scoped key
+                { $inc: { seq: 1 } },
+                { new: true, upsert: true }
+            );
+            console.log('[DEBUG] Counter Result:', counter);
+
+            const jobOpeningId = `JOB-${counter.seq.toString().padStart(4, '0')}`;
+            console.log('[DEBUG] Generated Job ID:', jobOpeningId);
+
+            const requirement = new Requirement({
+                ...data,
+                tenant: tenantId,
+                jobOpeningId,
+                createdBy: userId
+            });
+            return await requirement.save();
+        } catch (err) {
+            console.error('[CRITICAL ERROR] createRequirement failed:', err);
+            throw err; // Re-throw to controller
+        }
     }
 
     async getRequirements(tenantId, query) {
         const { Requirement } = await this.getModels(tenantId);
         const filter = { tenant: tenantId };
 
-        // Enhance safe filtering
+        // Enhance safe filtering logic...
         if (query.status) filter.status = query.status;
-        if (query.visibility) filter.visibility = query.visibility; // If passed directly
-        // Note: The controller manually builds complex query (e.g. $in).
-        // Let's modify this method to Merge query instead of simplistic mapping if query is complex.
+        if (query.visibility) filter.visibility = query.visibility;
 
-        // If the query object contains special mongodb operators, we should probably allow safe merges
-        // But for safety, let's explicit allow specific keys from controller
-
-        // Support direct complex query passing from trusted internal controllers
         if (query && (query.$or || query.visibility || query.status)) {
             Object.assign(filter, query);
         }
 
-        return await Requirement.find(filter).sort({ createdAt: -1 });
+        // Pagination Logic
+        const page = parseInt(query.page) || 1;
+        const limit = parseInt(query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const total = await Requirement.countDocuments(filter);
+        const requirements = await Requirement.find(filter)
+            .sort({ updatedAt: -1 }) // Sort by last updated, newest first
+            .skip(skip)
+            .limit(limit);
+
+        return {
+            requirements,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
     }
 
     async getRequirementById(tenantId, id) {
@@ -133,7 +179,7 @@ class RecruitmentService {
         const { Applicant } = await this.getModels(tenantId);
         // Need to populate correctly
         return await Applicant.find({ tenant: tenantId })
-            .populate('requirementId', 'jobTitle jobCode')
+            .populate('requirementId', 'jobTitle jobOpeningId')
             .populate('candidateId', 'name email mobile')
             .populate('salarySnapshotId')
             .sort({ createdAt: -1 });
@@ -222,7 +268,7 @@ class RecruitmentService {
         }
 
         return await Applicant.find({ email: emailToSearch })
-            .populate('requirementId', 'jobTitle department location status')
+            .populate('requirementId', 'jobTitle department location status jobOpeningId')
             .sort({ createdAt: -1 });
     }
 }

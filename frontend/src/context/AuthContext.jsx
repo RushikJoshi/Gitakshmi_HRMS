@@ -65,7 +65,7 @@ export function AuthProvider({ children }) {
       setUser(res.data.user);
       return { success: true };
     } catch (error) {
-      return { success: false, message: error.response?.data?.message || "Invalid credentials" };
+      return { success: false, message: error.response?.data?.message || (error.code === 'ERR_NETWORK' || error.message?.includes('timeout') ? "Server unreachable. Please check your connection." : "Invalid credentials") };
     }
   }
 

@@ -29,7 +29,7 @@ function logToDebug(message) {
         const logPath = path.join(__dirname, '../debug_email.log');
         const timestamp = new Date().toISOString();
         if (fs.existsSync(path.dirname(logPath))) {
-            fs.appendFileSync(logPath, `[${timestamp}] [APPLICANT] ${message}\n`);
+            // fs.appendFileSync(logPath, `[${timestamp}] [APPLICANT] ${message}\n`);
         }
     } catch (e) { console.error("Log failed", e); }
 }

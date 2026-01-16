@@ -178,11 +178,14 @@ app.get('/api/health', (_req, res) => {
 /* ===============================
    ERROR HANDLING
 ================================ */
-const errorMiddleware = require('./middleware/error.middleware');
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI;
 
-app.use((err, req, res, next) => {
-    next(err);
-});
-app.use(errorMiddleware);
+if (!MONGO_URI) {
+    console.error('MONGO_URI not set');
+    process.exit(1);
+}
+
+// MongoDB connection is handled in server.js
 
 module.exports = app;

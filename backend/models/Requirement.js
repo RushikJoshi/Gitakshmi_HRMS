@@ -7,8 +7,9 @@ const RequirementSchema = new mongoose.Schema({
   vacancy: { type: Number, required: true, min: 1 },
   status: { type: String, enum: ['Open', 'Closed'], default: 'Open' },
   updatedAt: { type: Date, default: Date.now },
+  jobOpeningId: { type: String, index: true }, // Auto-generated ID (e.g., JOB-0001)
   publicFields: { type: [String], default: [] },
   workflow: { type: [String], default: ['Applied', 'Shortlisted', 'Interview', 'Finalized'] }
-}, { strict: false });
+}, { strict: false, collection: 'requirements' });
 
 module.exports = RequirementSchema;
