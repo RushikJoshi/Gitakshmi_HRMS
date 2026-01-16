@@ -254,5 +254,5 @@ ModuleConfig.propTypes = {
     name: PropTypes.string,
     modules: PropTypes.arrayOf(PropTypes.string),
   }),
-  onClose: PropTypes.func.isRequired,
+  onClose: PropTypes.func, // Optional: used when rendered as modal
 };

@@ -49,6 +49,9 @@ import TemplatePreview from '../pages/HR/TemplatePreview';
 import SalaryStructure from '../pages/HR/SalaryStructure';
 import CreateRequirement from '../pages/HR/CreateRequirement';
 
+// Settings
+import CompanySettings from '../pages/settings/CompanySettings';
+
 // Payroll
 import SalaryComponents from '../pages/HR/Payroll/SalaryComponents';
 import NewEarning from '../pages/HR/Payroll/NewEarning';
@@ -162,6 +165,8 @@ export default function AppRoutes() {
         <Route path="payroll/payslips" element={<Payslips />} />
         <Route path="payroll/payslip-design" element={<PaySlipDesign />} />
 
+        {/* Settings */}
+        <Route path="settings/company" element={<CompanySettings />} />
 
         {/* Global */}
         <Route path="details/:entityType/:entityId" element={<EntityDetail />} />
