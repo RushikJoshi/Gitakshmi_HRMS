@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../utils/api'; // Centralized axios instance with auth & tenant headers
 import { useAuth } from '../../context/AuthContext';
 import OfferLetterPreview from '../../components/OfferLetterPreview';
@@ -10,6 +10,7 @@ import { Eye, Download, Edit2, RefreshCw, IndianRupee, Upload, FileText, CheckCi
 
 export default function Applicants() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [applicants, setApplicants] = useState([]);
     const [loading, setLoading] = useState(false);
 
@@ -117,6 +118,22 @@ export default function Applicants() {
         }
         fetchReqs();
     }, []);
+
+    // Handle auto-opening joining letter modal from salary assignment
+    useEffect(() => {
+        if (location.state?.openJoiningLetterFor && applicants.length > 0) {
+            // Find the applicant
+            const applicant = applicants.find(a => a._id === location.state.openJoiningLetterFor);
+            if (applicant) {
+                if (location.state.message) {
+                    alert(location.state.message);
+                }
+                openJoiningModal(applicant);
+            }
+            // Clear the state to prevent re-triggering
+            navigate('/hr/applicants', { replace: true });
+        }
+    }, [applicants, location.state]);
 
     // Handle Requirement Selection
     const handleRequirementChange = (reqId) => {
@@ -1008,7 +1025,7 @@ export default function Applicants() {
             return;
         }
         // Check if salary is assigned (either via snapshot or flat ctc field)
-        const isSalaryAssigned = applicant.salarySnapshot || (applicant.ctc && applicant.ctc > 0);
+        const isSalaryAssigned = applicant.salarySnapshotId || applicant.salarySnapshot || (applicant.ctc && applicant.ctc > 0);
         if (!isSalaryAssigned) {
             alert("Please assign salary before generating joining letter.");
             return;
@@ -1501,7 +1518,13 @@ export default function Applicants() {
                                                                                     <div className="text-[10px] text-slate-400 group-hover/ctc:text-blue-500 transition-colors">Edit Structure</div>
                                                                                 </div>
                                                                             ) : (
-                                                                                <button onClick={() => openSalaryModal(app)} className="text-xs font-medium text-blue-600 hover:underline border border-dashed border-blue-300 px-2 py-1 rounded">Set CTC</button>
+                                                                                <button
+                                                                                    onClick={() => openSalaryModal(app)}
+                                                                                    className="text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-100 cursor-pointer"
+                                                                                    title="Set CTC"
+                                                                                >
+                                                                                    SET CTC
+                                                                                </button>
                                                                             )
                                                                         ) : <span className="text-slate-300">N/A</span>}
                                                                     </td>

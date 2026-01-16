@@ -1213,7 +1213,7 @@ exports.generateJoiningLetter = async (req, res) => {
             generatedBy: req.user?.userId
         });
 
-    
+
         await generated.save();
 
         // Update Applicant
@@ -1743,6 +1743,13 @@ exports.previewJoiningLetter = async (req, res) => {
 
         console.log("preview salaryComponents (FINAL STRICT) =>", salaryComponents);
 
+        // Enhance salaryComponents with raw numeric values for template compatibility
+        const enhancedSalaryComponents = salaryComponents.map(comp => ({
+            ...comp,
+            monthlyRaw: comp.monthly === '' ? 0 : (typeof comp.monthly === 'string' ? parseFloat(comp.monthly.replace(/,/g, '')) || 0 : comp.monthly),
+            yearlyRaw: comp.yearly === '' ? 0 : (typeof comp.yearly === 'string' ? parseFloat(comp.yearly.replace(/,/g, '')) || 0 : comp.yearly)
+        }));
+
         // Remove Annexure Tables entirely for preview as well
         // const annexureTables = SalaryViewService.generateView(...) <-- REMOVED
 
@@ -1763,10 +1770,32 @@ exports.previewJoiningLetter = async (req, res) => {
             }
         };
 
+        // Build basicData object with applicant and company information
+        const basicData = {
+            candidate_name: applicant.name || '',
+            candidateName: applicant.name || '',
+            employee_name: applicant.name || '',
+            father_name: applicant.fatherName || '',
+            fatherName: applicant.fatherName || '',
+            email: applicant.email || '',
+            mobile: applicant.mobile || '',
+            address: applicant.address || '',
+            designation: applicant.requirementId?.jobTitle || '',
+            position: applicant.requirementId?.jobTitle || '',
+            department: applicant.requirementId?.department || applicant.department || '',
+            joining_date: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
+            joiningDate: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
+            location: applicant.location || applicant.workLocation || '',
+            work_location: applicant.location || applicant.workLocation || '',
+            current_date: new Date().toLocaleDateString('en-IN'),
+            issued_date: new Date().toLocaleDateString('en-IN'),
+            ref_no: `JL/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`
+        };
+
         const finalData = {
             ...basicData,
-            // Main salary components array (for table rendering)
-            salaryComponents: salaryComponents,
+            // Main salary components array (for table rendering) - ENHANCED with raw values
+            salaryComponents: enhancedSalaryComponents,
             // COMPLETE salaryStructure object (single source of truth)
             salaryStructure: salaryStructure,
             // NEW FORMAT: Separate arrays for dynamic loops in Word template
@@ -1780,13 +1809,33 @@ exports.previewJoiningLetter = async (req, res) => {
             // Pass flat keys for direct access
             ...(req.flatSalaryData || {}),
 
-            salary_table_text_block: salaryComponents.map(r => `${r.name}\t${r.monthly}\t${r.yearly}`).join('\n'), // Fallback
-            SALARY_TABLE: salaryComponents.map(r => `${r.name}\t${r.monthly}\t${r.yearly}`).join('\n')     // Fallback
+            // Add individual component mappings for hardcoded template fields
+            BASIC_MONTHLY: totals.grossA.formattedM,
+            BASIC_YEARLY: totals.grossA.formattedY,
+            HRA_MONTHLY: earnings.find(e => e.name.toLowerCase().includes('hra'))?.monthly || '0',
+            HRA_YEARLY: earnings.find(e => e.name.toLowerCase().includes('hra'))?.yearly || '0',
+            SPECIAL_ALLOWANCE_MONTHLY: earnings.find(e => e.name.toLowerCase().includes('special'))?.monthly || '0',
+            SPECIAL_ALLOWANCE_YEARLY: earnings.find(e => e.name.toLowerCase().includes('special'))?.yearly || '0',
+            GROSS_A_MONTHLY: totals.grossA.formattedM,
+            GROSS_A_YEARLY: totals.grossA.formattedY,
+            GROSS_B_MONTHLY: totals.grossB?.formattedM || '0',
+            GROSS_B_YEARLY: totals.grossB?.formattedY || '0',
+            GROSS_C_MONTHLY: totals.grossC?.formattedM || totals.computedCTC.formattedM,
+            GROSS_C_YEARLY: totals.grossC?.formattedY || totals.computedCTC.formattedY,
+            NET_SALARY_MONTHLY: totals.net.formattedM,
+            NET_SALARY_YEARLY: totals.net.formattedY,
+            CTC_MONTHLY: totals.computedCTC.formattedM,
+            CTC_YEARLY: totals.computedCTC.formattedY,
+
+            salary_table_text_block: enhancedSalaryComponents.map(r => `${r.name}\t${r.monthly}\t${r.yearly}`).join('\n'), // Fallback
+            SALARY_TABLE: enhancedSalaryComponents.map(r => `${r.name}\t${r.monthly}\t${r.yearly}`).join('\n')     // Fallback
         };
 
         // Log missing placeholders but don't crash
         console.log('🔥 [JOINING LETTER] Final data prepared:', Object.keys(finalData));
-        console.log('🔥 [PREVIEW JOINING LETTER] Data values:', finalData);
+        console.log('🔥 [JOINING LETTER] Salary Components Sample:', JSON.stringify(salaryComponents.slice(0, 5), null, 2));
+        console.log('🔥 [JOINING LETTER] Earnings Sample:', JSON.stringify(salaryStructure.earnings.slice(0, 3), null, 2));
+        console.log('🔥 [JOINING LETTER] Totals:', JSON.stringify(salaryStructure.totals, null, 2));
 
         // 4. Render
         console.log('🔥 [PREVIEW JOINING LETTER] Rendering with data...');
@@ -2199,86 +2248,4 @@ exports.generateJoiningLetter = async (req, res) => {
     }
 };
 
-/**
- * PREVIEW JOINING LETTER
- * POST /api/letters/preview-joining
- */
-exports.previewJoiningLetter = async (req, res) => {
-    try {
-        const { applicantId, templateId } = req.body;
 
-        if (!applicantId || !templateId) {
-            return res.status(400).json({ success: false, message: 'Applicant ID and Template ID are required' });
-        }
-
-        const { Applicant, LetterTemplate, CompanyProfile } = getModels(req);
-
-        const applicant = await Applicant.findById(applicantId).populate('requirementId', 'title department').lean();
-        if (!applicant) {
-            return res.status(404).json({ success: false, message: 'Applicant not found' });
-        }
-
-        const template = await LetterTemplate.findById(templateId).lean();
-        if (!template) {
-            return res.status(404).json({ success: false, message: 'Template not found' });
-        }
-
-        const tenantId = req.user.tenant || req.user.tenantId;
-        const salaryStructure = await SalaryStructure.findOne({ tenantId, candidateId: applicantId }).lean();
-        const companyProfile = await CompanyProfile.findOne().lean();
-
-        const letterData = {
-            candidateName: applicant.name || '',
-            fatherName: applicant.fatherName || '',
-            email: applicant.email || '',
-            mobile: applicant.mobile || '',
-            address: applicant.address || '',
-            position: applicant.requirementId?.title || 'Not Specified',
-            department: applicant.requirementId?.department || applicant.department || '',
-            joiningDate: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
-            location: applicant.location || applicant.workLocation || '',
-            ctcYearly: salaryStructure?.totals?.annualCTC || 0,
-            ctcMonthly: salaryStructure?.totals?.monthlyCTC || 0,
-            grossSalary: salaryStructure?.totals?.grossEarnings || 0,
-            netSalary: salaryStructure?.totals?.netSalary || 0,
-            earnings: salaryStructure?.earnings || [],
-            deductions: salaryStructure?.deductions || [],
-            employerBenefits: salaryStructure?.employerBenefits || [],
-            companyName: companyProfile?.companyName || 'Company Name',
-            companyAddress: companyProfile?.address || '',
-            companyPhone: companyProfile?.phone || '',
-            companyEmail: companyProfile?.email || '',
-            companyWebsite: companyProfile?.website || '',
-            letterDate: new Date().toLocaleDateString('en-IN'),
-            refNo: `PREVIEW-JL/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`
-        };
-
-        const templatePath = normalizeFilePath(template.filePath);
-        const templateBuffer = await fsPromises.readFile(templatePath);
-        const zip = new PizZip(templateBuffer);
-        const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-        doc.render(letterData);
-
-        const outputBuffer = doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
-
-        const previewDir = path.join(__dirname, '../uploads/previews');
-        if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
-
-        const fileName = `preview_joining_${applicantId}_${Date.now()}.docx`;
-        const outputPath = path.join(previewDir, fileName);
-        await fsPromises.writeFile(outputPath, outputBuffer);
-
-        res.json({
-            success: true,
-            message: 'Preview generated successfully',
-            data: {
-                previewUrl: `/uploads/previews/${fileName}`,
-                fileName
-            }
-        });
-
-    } catch (error) {
-        console.error('❌ Preview Joining Letter Error:', error);
-        res.status(500).json({ success: false, message: 'Failed to generate preview', error: error.message });
-    }
-};

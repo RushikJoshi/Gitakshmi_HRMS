@@ -88,6 +88,7 @@ const payrollRoutes = require('./routes/payroll.routes');
 const deductionRoutes = require('./routes/deduction.routes');
 const salaryStructureRoutes = require('./routes/salaryStructure.routes');
 const payrollRuleRoutes = require('./routes/payrollRule.routes');
+const salaryRevisionRoutes = require('./routes/salaryRevision.routes');
 
 /* ===============================
    ROUTES (NO TENANT)
@@ -134,6 +135,7 @@ try {
 }
 
 app.use('/api/payroll-rules', payrollRuleRoutes);
+app.use('/api/hr', salaryRevisionRoutes);
 
 try {
     app.use('/api/tracker', require('./routes/tracker.routes'));
