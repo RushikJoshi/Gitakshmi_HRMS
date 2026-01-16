@@ -12,6 +12,8 @@ import AttendanceSettings from './AttendanceSettings';
 import AttendanceCalendar from '../../components/AttendanceCalendar';
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
+import AttendanceHistory from './AttendanceHistory';
+import * as XLSX from 'xlsx';
 
 export default function AttendanceAdmin() {
     const [view, setView] = useState('dashboard'); // dashboard, settings
@@ -112,41 +114,67 @@ export default function AttendanceAdmin() {
         }
     };
 
-    const handleFileUpload = async (e) => {
+    // const handleFileUpload = async (e) => {
+    //     const file = e.target.files[0];
+    //     if (!file) return;
+
+    //     const formData = new FormData();
+    //     formData.append('file', file);
+
+    //     try {
+    //         setUploading(true);
+    //         const res = await api.post('/attendance/upload-excel', formData, {
+    //             headers: { 'Content-Type': 'multipart/form-data' }
+    //         });
+    //         alert(res.data.message);
+    //         fetchStats();
+    //     } catch (err) {
+    //         console.error('Upload failed:', err);
+    //         alert(err.response?.data?.error || 'Failed to upload attendance');
+    //     } finally {
+    //         setUploading(false);
+    //         if (fileInputRef.current) fileInputRef.current.value = '';
+    //     }
+    // };
+
+    const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        const formData = new FormData();
-        formData.append('file', file);
+        try{
+        const reader = new FileReader();
 
-        try {
-            setUploading(true);
-            const res = await api.post('/attendance/upload-excel', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            alert(res.data.message);
-            fetchStats();
-        } catch (err) {
-            console.error('Upload failed:', err);
-            alert(err.response?.data?.error || 'Failed to upload attendance');
-        } finally {
-            setUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
+        reader.onload = (event) => {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+
+            const sheetName = workbook.SheetNames[0]; // first sheet
+            const worksheet = workbook.Sheets[sheetName];
+
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            console.log(jsonData);
+        };
+
+        reader.readAsArrayBuffer(file);
+
+    }
+    catch(error){
+        console.log("Error Occured at the time Fatching the data")
+    }
     };
 
     return (
         <div className="space-y-8 p-6 md:p-8 animate-in fade-in duration-500">
             {/* Header / Tabs */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
+                <div className="flex">
                     <h1 className="text-4xl font-black text-slate-800 dark:text-white tracking-tighter uppercase">Attendance Control</h1>
                     <div className="flex gap-4 mt-4">
                         <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')} label="Live Dashboard" />
                         <TabButton active={view === 'settings'} onClick={() => setView('settings')} label="Policy Settings" />
+                        <TabButton active={view === 'attendanceHistory'} onClick={() => setView('attendanceHistory')} label="Attendance History" />
                     </div>
                 </div>
-
                 {view === 'dashboard' && (
                     <div className="flex items-center gap-3">
                         <DatePicker
@@ -296,8 +324,10 @@ export default function AttendanceAdmin() {
                         </div>
                     </div>
                 </div>
-            ) : (
+            ) : view === 'settings' ? (
                 <AttendanceSettings />
+            ) : (
+                <AttendanceHistory />
             )}
 
             {/* Employee Register Modal (Reuse the same logic) */}

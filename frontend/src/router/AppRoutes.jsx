@@ -41,6 +41,7 @@ import CalendarManagement from '../pages/HR/CalendarManagement';
 import CandidateStatusTracker from '../pages/HR/CandidateStatusTracker';
 import CandidateTimeline from '../pages/HR/CandidateStatusTracker/CandidateTimeline';
 import PaySlipDesign from '../pages/HR/Payroll/PaySlipDesign';
+import AttendanceHistory from '../pages/HR/AttendanceHistory';
 
 // 🆕 Letter modules (from RIGHT)
 import LetterTemplates from '../pages/HR/LetterTemplates';
@@ -70,6 +71,7 @@ import NotFound from '../pages/NotFound';
 import VerifyCompany from '../pages/VerifyCompany';
 import JobApplication from '../pages/JobApplication/JobApplication';
 import JobsList from '../pages/JobApplication/JobsList';
+import FaceAttendance from '../pages/Employee/FaceAttendance';
 
 // Candidate Pages
 import CandidateLogin from '../pages/Candidate/CandidateLogin';
@@ -136,6 +138,7 @@ export default function AppRoutes() {
         <Route path="org-tree" element={<CeoOrg />} />
         <Route path="access" element={<AccessControl />} />
         <Route path="offer-templates" element={<OfferTemplates />} />
+        <Route path="attendance-history" element={<AttendanceHistory /> } />
 
         {/* 🆕 Letter routes */}
         <Route path="letter-templates" element={<LetterTemplates />} />
@@ -164,6 +167,7 @@ export default function AppRoutes() {
         {/* Global */}
         <Route path="details/:entityType/:entityId" element={<EntityDetail />} />
         <Route path="my-requests" element={<MyRequests />} />
+        <Route path="face-attendance" element={<FaceAttendance /> } />
       </Route>
 
       {/* Employee / Manager */}

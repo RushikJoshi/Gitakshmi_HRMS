@@ -19,6 +19,7 @@ import ReportingTree from '../../components/ReportingTree';
 
 import InternalJobs from './InternalJobs';
 import MyApplications from './MyApplications';
+import FaceAttendance from './FaceAttendance';
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -567,6 +568,11 @@ export default function EmployeeDashboard() {
       {/* REGULARIZATION TAB */}
       {activeTab === 'regularization' && (
         <RegularizationRequest />
+      )}
+
+            {/* FaceAttendance Tab */}
+      {activeTab === 'face-attendance' && (
+        <FaceAttendance />
       )}
 
       {/* TEAM LEAVES TAB */}

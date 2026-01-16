@@ -9,6 +9,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post('/punch', auth.authenticate, attendCtrl.punch);
 router.get('/my', auth.authenticate, attendCtrl.getMyAttendance);
 router.get('/today-summary', auth.authenticate, attendCtrl.getTodaySummary);
+router.post('/validateAttendance', auth.authenticate, attendCtrl.validateLocation);
 
 // --- Manager Routes ---
 router.get('/team', auth.authenticate, attendCtrl.getTeamAttendance);

@@ -36,7 +36,8 @@ export default function EmployeeSidebar({ activeTab, setActiveTab, onClose }) {
             title: 'Attendance',
             items: [
                 { id: 'attendance', label: 'My Attendance', icon: ICONS.dashboard },
-                { id: 'regularization', label: 'Regularization', icon: ICONS.regularization }
+                { id: 'regularization', label: 'Regularization', icon: ICONS.regularization },
+                { id: 'face-attendance', label: 'Face Attendance', icon: ICONS.regularization }
             ]
         },
         {

@@ -104,6 +104,21 @@ const EmployeeSchema = new mongoose.Schema({
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
 
   meta: { type: Object, default: {} },
+  geofance: [
+    {
+      lat: Number,
+      lng: Number
+    }
+  ],
+  allowedAccuracy: {
+    type: Number,
+    default: 30
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+
 }, { timestamps: true });
 
 // Compound indexes for efficient org/department queries

@@ -4,6 +4,7 @@ import AttendanceCalendar from './AttendanceCalendar';
 import { ChevronLeft, ChevronRight, Download, Filter } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
+
 export default function MyAttendanceView() {
     const [attendance, setAttendance] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -23,7 +24,9 @@ export default function MyAttendanceView() {
             setLoading(true);
             const t = new Date().getTime();
             // Fetch Attendance, Leaves, Holidays, and Settings in parallel
-            const [attRes, leaveRes, holidayRes, settingsRes] = await Promise.all([
+            const [employeeId, employeeFullName, leaveRes, holidayRes, settingsRes] = await Promise.all([
+                api.get(`/attendance/my`),
+                api.get(`/attendance/my`),
                 api.get(`/attendance/my?month=${currentMonth + 1}&year=${currentYear}&t=${t}`),
                 api.get(`/employee/leaves/history?t=${t}`),
                 api.get(`/holidays?t=${t}`),
@@ -121,11 +124,21 @@ export default function MyAttendanceView() {
         }
     };
 
-    const handleExport = () => {
+    const handleExport = async () => {
         if (!attendance.length) return alert("No data to export");
 
-        const headers = ["Date", "Status", "Check In", "Check Out", "Working Hours", "Is Late"];
+        const headers = ["Employee_id", "Employee_Name", "Date", "Status", "Check In", "Check Out", "Working Hours", "Is Late"];
+        const tenant = localStorage.getItem("tenantId");
+        console.log(tenant);
+
+        // const attandanceData = await attendance.find({}).lean();
+        // console.log(attandanceData);
+        // const employee = employee.find({tenant: tenant });
+
+
         const rows = attendance.map(item => [
+            item.employee._id,
+            (item.employee.firstName + " " +item.employee.lastName),
             formatDateDDMMYYYY(item.date),
             (item.leaveType ? `${item.status} (${item.leaveType})` : item.status).toUpperCase(),
             item.checkIn ? new Date(item.checkIn).toLocaleTimeString() : '-',

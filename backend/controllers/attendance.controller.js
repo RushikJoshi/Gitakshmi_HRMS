@@ -6,6 +6,9 @@ const EmployeeSchema = require('../models/Employee');
 const HolidaySchema = require('../models/Holiday');
 const LeaveRequestSchema = require('../models/LeaveRequest');
 const AuditLogSchema = require('../models/AuditLog');
+// const OfficeSchema = require('../models/OfficeSchema.model');
+// const CompanyProfile = require('../models/CompanyProfile');
+const Employee = require('../models/Employee');
 
 const getModels = (req) => {
     const db = req.tenantDB;
@@ -16,9 +19,190 @@ const getModels = (req) => {
         Employee: db.model('Employee', EmployeeSchema),
         Holiday: db.model('Holiday', HolidaySchema),
         LeaveRequest: db.model('LeaveRequest', LeaveRequestSchema),
-        AuditLog: db.model('AuditLog', AuditLogSchema)
+        AuditLog: db.model('AuditLog', AuditLogSchema),
+        // Office: db.model('Office', CompanyProfile)
+        Employee: db.model('Employee', Employee)
     };
 };
+
+// 🔹 Point-in-polygon helper
+const isInsidePolygon = (point, polygon) => {
+    let inside = false;
+    const x = point.lng;
+    const y = point.lat;
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].lng;
+        const yi = polygon[i].lat;
+        const xj = polygon[j].lng;
+        const yj = polygon[j].lat;
+
+        const intersect =
+            yi > y !== yj > y &&
+            x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+        if (intersect) inside = !inside;
+    }
+
+    return inside;
+};
+
+// exports.validateLocation = async (req,res) => {
+
+//     const {location, isFaceVerified} = req.body;
+
+//     if(isFaceVerified){
+
+//         const { Attendance } = getModels(req);
+
+//         const Office = await Office.findOne({name:"ahmedabad"});
+
+//         if(location.accuracy > Office.allowedLocationAccuracy){
+//             return res.status(400).message("Too Loo Location Accuracy!!");
+//         }
+
+//         const inside = isInsidePolygon(location,Office.geofance);
+
+//         if(!inside){
+//             return res.status(400).json({message: "Out of the office location"});
+//         }
+
+//         await Attendance.create({
+//             tenant: req.params,
+//             employee: req.user._id,
+//             date:new Date(),
+//             location,
+//             status: "Present"
+//         });
+
+//         res.json({message : "Attendance Marked Successfully"});
+//     }
+//     else{
+//         res.status(400).json({message: "Your Face is Not Verified"});
+//     }
+// }
+
+exports.validateLocation = async (req, res) => {
+    try {
+        console.log("Tenant DB exists:", !!req.tenantDB);
+        console.log("Request body:", req.body);
+
+        const { location, isFaceVerified, tenantId } = req.body;
+
+        if (!isFaceVerified) {
+            return res.status(400).json({ message: "Face verification required" });
+        }
+
+        if (!location || !location.lat || !location.lng) {
+            return res.status(400).json({ message: "Location data is required" });
+        }
+
+        const { Attendance, Employee } = getModels(req);
+
+        // Find office by tenantId from request body or from authenticated user
+        const officeTenantId = tenantId || req.tenantId;
+        console.log("🔍 Looking for office with tenantId:", officeTenantId);
+        console.log("🔍 tenantId from body:", tenantId);
+        console.log("🔍 tenantId from req:", req.tenantId);
+        console.log("🔍 User info:", req.user);
+
+        const employee = await Employee.findOne({ _id: '69662fbeb56bd4e7fefcf5fa' });
+        console.log("📍 Office found:", employee);
+
+        if (!employee) {
+            // Let's check if ANY office exists
+            const allEmployees = await Employee.find({}).limit(5);
+            console.log("📋 All offices in DB (first 5):", allEmployees);
+            return res.status(404).json({
+                message: "Office not found for this tenant",
+                debug: {
+                    searchedTenantId: officeTenantId,
+                    availableOfficeCount: allEmployees.length,
+                    hint: "Please create a CompanyProfile record with the correct tenantId"
+                }
+            });
+        }
+
+        console.log("Accuracy:", location.accuracy);
+        console.log("Allowed:", employee.allowedAccuracy);
+
+        // Check location accuracy
+        if (location.accuracy > employee.allowedAccuracy) {
+            return res.status(400).json({
+                message: `Location accuracy too low. Required: ${employee.allowedAccuracy}m, Got: ${location.accuracy}m`
+            });
+        }
+        demoGeofance = [
+  { "lat": 23.03010, "lng": 72.51790 },
+  { "lat": 23.03010, "lng": 72.51830 },
+  { "lat": 23.03040, "lng": 72.51830 },
+  { "lat": 23.03040, "lng": 72.51790 }
+]
+
+        // Check if location is inside geofence
+        if (employee.geofance && employee.geofance.length > 0) {
+            const inside = isInsidePolygon(location, demoGeofance);
+
+            if (!inside) {
+                return res.status(400).json({ message: "You are outside the office location" });
+            }
+        }
+
+        // Create attendance record
+        const employeeId = req.user.id;
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        today.setHours(0, 0, 0, 0);
+        const employee1 = await Employee.findOne({_id: employeeId}).lean();
+        console.log("Employee Name : ", employee1.firstName + " " + employee1.lastName);
+        const employeeFullName = employee1.firstName + " " + employee1.lastName;
+
+        // Check if attendance already exists for today
+        let attendance = await Attendance.findOne({
+            employee: employeeId,
+            tenant: officeTenantId,
+            date: today
+        });
+
+        if (attendance) {
+            return res.status(400).json({
+                message: "Attendance already marked for today",
+                data: attendance
+            });
+        }
+
+        // Create new attendance record
+        attendance = new Attendance({
+            tenant: officeTenantId,
+            employee: employeeId,
+            date: today,
+            checkIn: now,
+            status: 'present',
+            logs: [{
+                time: now,
+                type: 'IN',
+                location: `${location.lat}, ${location.lng}`,
+                device: req.body.device || 'Face Recognition',
+                ip: req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress || 'unknown'
+            }]
+        });
+
+        await attendance.save();
+
+        res.json({
+            message: "Attendance marked successfully",
+            data: attendance
+        });
+
+    } catch (err) {
+        console.error("❌ VALIDATE LOCATION ERROR:", err);
+        return res.status(500).json({
+            message: "Internal Server Error",
+            error: err.message
+        });
+    }
+};
+
 
 const calculateWorkingHours = (logs = []) => {
     if (logs.length < 2) return 0;
@@ -417,7 +601,8 @@ exports.getMyAttendance = async (req, res) => {
             filter.date = { $gte: startDate, $lte: endDate };
         }
 
-        const data = await Attendance.find(filter).sort({ date: 1 }); // Sorted by date ASC for calendar flow
+        const data = await Attendance.find(filter).sort({ date: 1 })
+        .populate('employee','firstName lastName'); // Sorted by date ASC for calendar flow
         res.json(data);
     } catch (error) {
         res.status(500).json({ error: error.message });
