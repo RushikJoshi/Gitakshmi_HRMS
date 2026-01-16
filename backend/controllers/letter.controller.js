@@ -1062,8 +1062,18 @@ exports.generateJoiningLetter = async (req, res) => {
 
         // 3. Prepare Data - FETCH FROM EmployeeSalarySnapshot (Single Source of Truth)
         const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
-        const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
-        let snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+
+        // NEW: Check for embedded snapshot first (Applicant 2.0 flow)
+        let snapshot = null;
+        if (targetType === 'applicant' && target.salarySnapshot) {
+            console.log('[JOINING LETTER] Using embedded salarySnapshot from Applicant');
+            snapshot = target.salarySnapshot.breakdown || target.salarySnapshot;
+        }
+
+        if (!snapshot) {
+            const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
+            snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+        }
 
         // Robust Fallback: Check target's specific snapshot references
         if (!snapshot && target) {
@@ -1679,8 +1689,18 @@ exports.previewJoiningLetter = async (req, res) => {
 
         // 3. Prepare Data - FETCH FROM EmployeeSalarySnapshot (Single Source of Truth)
         const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
-        const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
-        let snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+
+        // NEW: Check for embedded snapshot first (Applicant 2.0 flow)
+        let snapshot = null;
+        if (targetType === 'applicant' && target.salarySnapshot) {
+            console.log('[PREVIEW JOINING LETTER] Using embedded salarySnapshot from Applicant');
+            snapshot = target.salarySnapshot.breakdown || target.salarySnapshot;
+        }
+
+        if (!snapshot) {
+            const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
+            snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+        }
 
         // Robust Fallback: Check target's specific snapshot references
         if (!snapshot && target) {

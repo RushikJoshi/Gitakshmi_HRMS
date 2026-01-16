@@ -58,6 +58,20 @@ const ApplicantSchema = new mongoose.Schema({
   },
 
   // New Snapshot-based Payroll Reference
+  salaryTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'SalaryTemplate' },
+  salarySnapshot: {
+    basicMonthly: Number,
+    hraMonthly: Number,
+    grossA: Number,
+    gratuity: Number,
+    grossB: Number,
+    employerContributions: Number,
+    ctcMonthly: Number,
+    ctcYearly: Number,
+    takeHomeMonthly: Number,
+    breakdown: Object,
+    generatedAt: Date
+  },
   salaryAssigned: { type: Boolean, default: false },
   salaryLocked: { type: Boolean, default: false },
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },

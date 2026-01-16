@@ -169,25 +169,16 @@ function getTenantDB(tenantId) {
   }
 
   // Create tenant DB (reuses underlying connection)
-  // REFACTOR: Use ONE shared database for all tenants to avoid hitting 500 collection limit.
-  // All collections will now hold data for ALL tenants, distinguished by 'tenant' field.
-  const dbName = `hrms_tenants_data`;
-
-  // Check if we already have a handle for this SHARED db
-  // We use a specific key 'SHARED_DB' in caching to avoid creating multiple handles for the same DB
-  if (tenantDbs['SHARED_DB']) {
-    return tenantDbs['SHARED_DB'];
-  }
+  const dbName = `company_${tenantId}`;
 
   const tenantDb = mongoose.connection.useDb(dbName, { useCache: true });
 
   registerModels(tenantDb, tenantId); // Register models once
 
-  tenantDbs['SHARED_DB'] = tenantDb;
-  tenantDbs[tenantId] = tenantDb; // Map access to shared DB
+  tenantDbs[tenantId] = tenantDb;
 
   console.log(
-    `Tenant DB prepared: ${dbName} (Shared Mode)`
+    `Tenant DB prepared: ${dbName}`
   );
 
   return tenantDb;
