@@ -13,7 +13,8 @@ import {
     FileText,
     Settings,
     X,
-    Wand2
+    Wand2,
+    Lock
 } from 'lucide-react';
 import api from '../../utils/api';
 
@@ -40,9 +41,34 @@ export default function SalaryStructure() {
     // Result State (from Backend)
     const [previewData, setPreviewData] = useState(null);
 
+    // Extra Components State
+    const [extraComponents, setExtraComponents] = useState([]);
+    const [availableComponents, setAvailableComponents] = useState({ earnings: [], deductions: [], benefits: [] });
+    const [showModal, setShowModal] = useState(false);
+    const [activeSection, setActiveSection] = useState(null); // 'Earnings', 'Deductions', 'Benefits'
+    const [selectedComponentIds, setSelectedComponentIds] = useState([]); // For multi-select in modal
+
     useEffect(() => {
         fetchData();
+        fetchComponents();
     }, [candidateId]);
+
+    const fetchComponents = async () => {
+        try {
+            const [eRes, dRes, bRes] = await Promise.all([
+                api.get('/payroll/earnings'),
+                api.get('/deductions'),
+                api.get('/payroll/benefits')
+            ]);
+            setAvailableComponents({
+                earnings: eRes.data.data || [],
+                deductions: dRes.data.data || [],
+                benefits: bRes.data.data || []
+            });
+        } catch (err) {
+            console.error("Failed to fetch components", err);
+        }
+    };
 
     const fetchData = async () => {
         try {
@@ -54,43 +80,59 @@ export default function SalaryStructure() {
 
             // Now try fetching candidate/applicant data from multiple endpoints
             let candData = null;
-            try {
-                // 1. Try Applicants route (most likely if coming from Applicants list)
-                const res = await api.get(`/requirements/applicants/${candidateId}`);
-                candData = res.data.data || res.data;
-            } catch (e1) {
+            let errors = [];
+
+            // 1. Try Applicants route (most likely if coming from Applicants list)
+            if (!candData) {
                 try {
-                    // 2. Try Employees route
+                    const res = await api.get(`/requirements/applicants/${candidateId}`);
+                    candData = res.data.data || res.data;
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`App: ${msg}`);
+                }
+            }
+
+            // 2. Try Employees route
+            if (!candData) {
+                try {
                     const res = await api.get(`/hr/employees/${candidateId}`);
                     candData = res.data.data || res.data;
-                } catch (e2) {
-                    try {
-                        // 3. Try Candidate/Public route (fallback)
-                        const res = await api.get(`/candidate/${candidateId}`);
-                        candData = res.data.data || res.data;
-                    } catch (e3) {
-                        console.error("All candidate fetch attempts failed", { e1, e2, e3 });
-                    }
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`Emp: ${msg}`);
+                }
+            }
+
+            // 3. Try Candidate/Public route (fallback)
+            if (!candData) {
+                try {
+                    const res = await api.get(`/candidate/${candidateId}`);
+                    candData = res.data.data || res.data;
+                } catch (err) {
+                    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+                    errors.push(`Pub: ${msg}`);
                 }
             }
 
             if (candData) {
                 setCandidate(candData);
                 // Set initial CTC if candidate already has one
+                // Mongoose populates into the field name: salarySnapshotId
+                const snapshot = candData.salarySnapshotId || candData.salarySnapshot;
+
                 if (candData.ctc) {
                     setCtcInput(candData.ctc.toString());
-                } else if (candData.salarySnapshot?.annualCTC) {
-                    setCtcInput(candData.salarySnapshot.annualCTC.toString());
+                } else if (snapshot?.ctc) {
+                    setCtcInput(snapshot.ctc.toString());
+                } else if (snapshot?.annualCTC) {
+                    setCtcInput(snapshot.annualCTC.toString());
                 }
 
-                // If candidate has a template assigned, select it
-                if (candData.salaryTemplateId) {
-                    const templateId = candData.salaryTemplateId._id || candData.salaryTemplateId;
-                    setSelectedTemplateId(templateId.toString());
-                }
+                setError(null);
             } else {
-                setError("Could not find applicant or employee with the provided ID. Please check if the candidate exists.");
-                console.warn("Could not find applicant/employee for ID:", candidateId);
+                setError(`Could not find candidate. Errors: ${errors.join(' | ')}`);
+                console.warn("Fetch failed:", errors);
             }
 
         } catch (err) {
@@ -104,24 +146,29 @@ export default function SalaryStructure() {
     /**
      * Preview Salary Breakdown from Backend
      */
-    const handleCalculate = async () => {
+    const handleCalculate = async (overrideComponents = null) => {
         if (!selectedTemplateId || !ctcInput) {
-            alert("Please select a template and enter CTC");
+            // alert("Please select a template and enter CTC");
             return;
         }
 
+        // Fix: onClick passes an event object, which is NOT an array. 
+        // We only want to use overrideComponents if it's explicitly passed as an array (e.g. from auto-calc).
+        const compsToUse = Array.isArray(overrideComponents) ? overrideComponents : extraComponents;
+
         try {
             setLoading(true);
-            const res = await api.get('/payroll-engine/salary/preview', {
-                params: {
-                    templateId: selectedTemplateId,
-                    ctcAnnual: ctcInput
-                }
+            // Use POST to send additional components
+            const res = await api.post('/payroll-engine/salary/preview', {
+                templateId: selectedTemplateId,
+                ctcAnnual: ctcInput,
+                additionalComponents: compsToUse
             });
             setPreviewData(res.data.data);
         } catch (err) {
             console.error("Calculation failed:", err);
-            alert("Calculation failed: " + (err.response?.data?.message || err.message));
+            // Only alert if it's a manual action or critical error
+            // alert("Calculation failed: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
@@ -142,18 +189,64 @@ export default function SalaryStructure() {
                 applicantId: candidateId,
                 templateId: selectedTemplateId,
                 ctcAnnual: parseFloat(ctcInput),
-                effectiveDate: new Date()
+                effectiveDate: new Date(),
+                additionalComponents: extraComponents // Include extra components in assignment
             };
 
             await api.post('/payroll-engine/salary/assign', payload);
-            alert("✅ Salary assigned and snapshot created successfully. You can now generate the joining letter.");
-            navigate('/hr/applicants');
+
+            // AUTO-CONFIRM & LOCK: Since this is Coming from "Finalize & Assign"
+            await api.post('/payroll-engine/salary/confirm', {
+                applicantId: candidateId,
+                reason: 'JOINING'
+            });
+
+            // Navigate to applicants page with state to auto-open joining letter modal
+            navigate('/hr/applicants', {
+                state: {
+                    openJoiningLetterFor: candidateId,
+                    message: "✅ Salary assigned successfully! Generate the joining letter below."
+                }
+            });
         } catch (err) {
             console.error("Assignment failed:", err);
             alert("Error: " + (err.response?.data?.message || err.message));
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleAddComponents = () => {
+        // Find selected components
+        const candidates = getModalComponents(); // get filtered list
+        const selected = candidates.filter(c => selectedComponentIds.includes(c._id));
+
+        const newComps = selected.map(comp => ({
+            ...comp,
+            category: activeSection,
+            value: 0
+        }));
+
+        // Avoid IDs that are already in extraComponents
+        const uniqueNew = newComps.filter(nc => !extraComponents.some(ec => ec._id === nc._id));
+
+        if (uniqueNew.length > 0) {
+            const updatedExtra = [...extraComponents, ...uniqueNew];
+            setExtraComponents(updatedExtra);
+            // AUTO RE-CALCULATE
+            if (ctcInput && selectedTemplateId) {
+                handleCalculate(updatedExtra);
+            }
+        }
+
+        setShowModal(false);
+        setSelectedComponentIds([]);
+    };
+
+    const toggleSelection = (id) => {
+        setSelectedComponentIds(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
     };
 
     const formatCurrency = (amount) => {
@@ -180,8 +273,94 @@ export default function SalaryStructure() {
 
     const totals = previewData?.totals || null;
 
+    // Helper to filter available components for modal
+    const getModalComponents = () => {
+        let list = [];
+        if (availableComponents) {
+            if (activeSection === 'Earnings') list = availableComponents.earnings || [];
+            else if (activeSection === 'Deductions') list = availableComponents.deductions || [];
+            else if (activeSection === 'Benefits') list = availableComponents.benefits || [];
+        }
+
+        // FILTER: Remove components that are ALREADY in the previewData or extraComponents
+        return list.filter(c => {
+            if (!c) return false;
+            const code = c.code || c.componentCode || c.name?.toUpperCase().replace(/\s+/g, '_');
+
+            // 1. Check if in extraComponents
+            if (Array.isArray(extraComponents)) {
+                if (extraComponents.some(ec => ec && ec._id === c._id)) return false;
+            }
+
+            // 2. Check if in previewData (resolved list)
+            if (previewData) {
+                const sectionMap = {
+                    'Earnings': previewData.earnings || [],
+                    'Deductions': previewData.deductions || previewData.employeeDeductions || [],
+                    'Benefits': previewData.benefits || []
+                };
+                const currentList = sectionMap[activeSection] || [];
+                // Check code existence safely
+                if (code && currentList.some(r => r && r.code === code)) return false;
+            }
+
+            return true;
+        });
+    };
+
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-6 bg-gray-50 min-h-screen">
+        <div className="p-6 w-full space-y-6 bg-gray-50 min-h-screen">
+            {/* Modal for Adding Components */}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+                        <div className="flex justify-between items-center mb-4 flex-shrink-0">
+                            <h3 className="text-lg font-bold">Add {activeSection}</h3>
+                            <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><X size={20} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                            {getModalComponents().map(c => {
+                                const isSelected = selectedComponentIds.includes(c._id);
+                                return (
+                                    <button
+                                        key={c._id}
+                                        onClick={() => toggleSelection(c._id)}
+                                        className={`w-full flex items-center gap-3 p-3 border rounded-xl transition text-left group ${isSelected ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:border-blue-300'}`}
+                                    >
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'}`}>
+                                            {isSelected && <Check size={14} className="text-white" />}
+                                        </div>
+                                        <span className={`font-bold ${isSelected ? 'text-blue-800' : 'text-gray-700'}`}>{c.name}</span>
+                                    </button>
+                                );
+                            })}
+                            {getModalComponents().length === 0 && (
+                                <p className="text-center text-gray-400 p-8 bg-gray-50 rounded-xl border border-dashed">
+                                    All available components are already added.
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="pt-4 mt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                            <button
+                                onClick={() => setShowModal(false)}
+                                className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleAddComponents}
+                                disabled={selectedComponentIds.length === 0}
+                                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-200"
+                            >
+                                Add Selected ({selectedComponentIds.length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/hr/applicants')} className="p-2 hover:bg-white rounded-full transition shadow-sm border">
@@ -203,7 +382,10 @@ export default function SalaryStructure() {
                             placeholder="e.g. 600000"
                             className="w-40 outline-none p-2 font-bold text-gray-800"
                             value={ctcInput}
-                            onChange={(e) => setCtcInput(e.target.value)}
+                            onChange={(e) => {
+                                setCtcInput(e.target.value);
+                                setPreviewData(null); // Clear preview on change to indicate stale data
+                            }}
                         />
                     </div>
 
@@ -238,135 +420,208 @@ export default function SalaryStructure() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
-                    {previewData ? (
-                        <>
-                            {/* EARNINGS */}
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                                <div className="px-6 py-4 bg-gradient-to-r from-green-50 to-white border-b border-green-100 flex justify-between items-center">
-                                    <h3 className="font-bold text-green-800 flex items-center gap-2"><TrendingUp size={18} /> Monthly Earnings (Resolved)</h3>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    {previewData.earnings.map(comp => (
-                                        <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-transparent">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-gray-800">{comp.name}</span>
-                                                <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="font-black text-gray-900">₹{formatCurrency(comp.amount / 12)}</p>
-                                                <p className="text-[9px] text-gray-400">₹{formatCurrency(comp.amount)} / yr</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                    <div className="lg:col-span-2 space-y-6">
+                        {/* Always show sections, but content depends on previewData */}
 
-                            {/* DEDUCTIONS */}
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                                <div className="px-6 py-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100 flex justify-between items-center">
-                                    <h3 className="font-bold text-red-800 flex items-center gap-2"><TrendingDown size={18} /> Employee Deductions</h3>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    {previewData.deductions.map(comp => (
-                                        <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-gray-800">{comp.name}</span>
-                                                <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="font-black text-red-600">₹{formatCurrency(comp.amount / 12)}</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                        {/* EARNINGS */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 bg-gradient-to-r from-green-50 to-white border-b border-green-100 flex justify-between items-center">
+                                <h3 className="font-bold text-green-800 flex items-center gap-2"><TrendingUp size={18} /> Monthly Earnings</h3>
+                                <button
+                                    onClick={() => { setActiveSection('Earnings'); setShowModal(true); }}
+                                    className="p-1 px-3 bg-white border border-green-200 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50"
+                                >
+                                    + Add
+                                </button>
                             </div>
+                            <div className="p-6 space-y-4">
+                                {!previewData && extraComponents.filter(c => c.category === 'Earnings').length === 0 && (
+                                    <p className="text-sm text-gray-400 italic">Enter CTC and Calculate to see standard earnings.</p>
+                                )}
 
-                            {/* BENEFITS */}
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                                <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100">
-                                    <h3 className="font-bold text-blue-800 flex items-center gap-2"><ShieldCheck size={18} /> Employer Benefits</h3>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    {previewData.benefits.map(comp => (
-                                        <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-gray-800">{comp.name}</span>
-                                                <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
+                                {/* Render resolved earnings OR just the extra components if not calculated yet */}
+                                {(previewData?.earnings || []).map(comp => (
+                                    <div key={comp.code} className={`flex items-center justify-between p-4 rounded-xl border ${comp.isBalancer ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-transparent'}`}>
+                                        <div className="flex flex-col">
+                                            <span className={`font-bold ${comp.isBalancer ? 'text-indigo-800' : 'text-gray-800'}`}>{comp.name}</span>
+                                            <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                                                {comp.isBalancer ? 'Auto-Balanced (CTC - Earnings - Benefits)' : `Formula: ${comp.formula}`}
+                                            </span>
+                                        </div>
+                                        <div className="text-right flex items-center gap-4">
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Monthly</p>
+                                                <p className={`font-black text-lg ${comp.isBalancer ? 'text-indigo-700' : 'text-gray-900'}`}>₹{formatCurrency(comp.annualAmount / 12)}</p>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="font-black text-blue-600">₹{formatCurrency(comp.amount / 12)}</p>
+                                            <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Annual</p>
+                                                <p className="text-sm font-semibold text-gray-500">₹{formatCurrency(comp.annualAmount)}</p>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                    </div>
+                                ))}
+
+                                {/* Pending Earnings (if not in preview yet) */}
+                                {!previewData && extraComponents.filter(c => c.category === 'Earnings').map(comp => (
+                                    <div key={comp._id} className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-100 rounded-xl">
+                                        <span className="font-bold text-gray-800">{comp.name}</span>
+                                        <span className="text-[10px] text-yellow-600 font-bold uppercase">Pending Calculation</span>
+                                    </div>
+                                ))}
                             </div>
-                        </>
-                    ) : (
-                        <div className="bg-white p-20 rounded-3xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
-                            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                                <Calculator size={32} className="text-gray-300" />
-                            </div>
-                            <h3 className="text-xl font-bold text-gray-400">Ready to Calculate</h3>
-                            <p className="max-w-xs text-sm text-gray-400 mt-2">Enter the Annual CTC and select a template to see the breakdown.</p>
                         </div>
-                    )}
-                </div>
 
-                {/* SIDEBAR */}
-                <div className="space-y-6">
-                    {previewData && (
-                        <div className="bg-[#0f172a] text-white p-8 rounded-3xl shadow-xl space-y-8 sticky top-6">
-                            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-                                <h3 className="font-bold uppercase tracking-widest text-xs text-blue-400">Salary Snapshot</h3>
-                                <Check size={20} className="text-blue-400" />
+                        {/* DEDUCTIONS */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100 flex justify-between items-center">
+                                <h3 className="font-bold text-red-800 flex items-center gap-2"><TrendingDown size={18} /> Employee Deductions</h3>
+                                <button
+                                    onClick={() => { setActiveSection('Deductions'); setShowModal(true); }}
+                                    className="p-1 px-3 bg-white border border-red-200 text-red-700 rounded-lg text-xs font-bold hover:bg-red-50"
+                                >
+                                    + Add
+                                </button>
                             </div>
+                            <div className="p-6 space-y-4">
+                                {!previewData && extraComponents.filter(c => c.category === 'Deductions').length === 0 && (
+                                    <p className="text-sm text-gray-400 italic">No deductions calculated yet.</p>
+                                )}
 
-                            <div className="space-y-6">
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Net Take-Home</p>
-                                        <p className="text-4xl font-black text-white">₹{formatCurrency(totals.netMonthly)}</p>
+                                {(previewData?.deductions || []).map(comp => (
+                                    <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-gray-800">{comp.name}</span>
+                                            <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
+                                        </div>
+                                        <div className="text-right flex items-center gap-4">
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Monthly</p>
+                                                <p className="font-black text-lg text-red-600">₹{formatCurrency(comp.annualAmount / 12)}</p>
+                                            </div>
+                                            <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Annual</p>
+                                                <p className="text-sm font-semibold text-gray-500">₹{formatCurrency(comp.annualAmount)}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <span className="bg-blue-500/20 text-blue-300 text-[10px] font-bold px-2 py-1 rounded uppercase">Monthly</span>
-                                </div>
+                                ))}
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                                        <p className="text-[9px] uppercase font-bold text-gray-500 mb-1">Gross Earnings</p>
-                                        <p className="font-bold text-lg">₹{formatCurrency(totals.grossMonthly)}</p>
+                                {/* Pending Deductions */}
+                                {!previewData && extraComponents.filter(c => c.category === 'Deductions').map(comp => (
+                                    <div key={comp._id} className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-100 rounded-xl">
+                                        <span className="font-bold text-gray-800">{comp.name}</span>
+                                        <span className="text-[10px] text-yellow-600 font-bold uppercase">Pending Calculation</span>
                                     </div>
-                                    <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                                        <p className="text-[9px] uppercase font-bold text-gray-500 mb-1">Deductions</p>
-                                        <p className="font-bold text-lg text-red-400">₹{formatCurrency(totals.deductionsMonthly)}</p>
-                                    </div>
-                                </div>
-
-                                <div className="p-6 bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl shadow-lg border border-white/20">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <p className="text-[10px] uppercase font-bold text-blue-100 tracking-widest">Defined CTC</p>
-                                    </div>
-                                    <p className="text-3xl font-black">₹{formatCurrency(totals.ctcYearly)}</p>
-                                    <div className="mt-2 text-[10px] font-bold text-blue-200 opacity-80 uppercase">
-                                        Deterministic Evaluation: OK
-                                    </div>
-                                </div>
+                                ))}
                             </div>
-
-                            <button
-                                onClick={handleAssign}
-                                disabled={saving}
-                                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-blue-900/20 font-black text-sm uppercase tracking-widest"
-                            >
-                                {saving ? "Saving..." : <><Save size={20} /> Finalize Assignment</>}
-                            </button>
-
-                            <p className="text-[10px] text-gray-500 text-center uppercase tracking-tighter">
-                                Click Finalize to create an <strong>Immutable Snapshot</strong>
-                            </p>
                         </div>
-                    )}
+
+                        {/* BENEFITS */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex justify-between items-center">
+                                <h3 className="font-bold text-blue-800 flex items-center gap-2"><ShieldCheck size={18} /> Employer Benefits</h3>
+                                <button
+                                    onClick={() => { setActiveSection('Benefits'); setShowModal(true); }}
+                                    className="p-1 px-3 bg-white border border-blue-200 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-50"
+                                >
+                                    + Add
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                {!previewData && extraComponents.filter(c => c.category === 'Benefits').length === 0 && (
+                                    <p className="text-sm text-gray-400 italic">No benefits calculated yet.</p>
+                                )}
+
+                                {(previewData?.benefits || []).map(comp => (
+                                    <div key={comp.code} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-gray-800">{comp.name}</span>
+                                            <span className="text-[10px] text-gray-400 uppercase font-semibold">Formula: {comp.formula}</span>
+                                        </div>
+                                        <div className="text-right flex items-center gap-4">
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Monthly</p>
+                                                <p className="font-black text-lg text-blue-600">₹{formatCurrency(comp.annualAmount / 12)}</p>
+                                            </div>
+                                            <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
+                                            <div>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Annual</p>
+                                                <p className="text-sm font-semibold text-gray-500">₹{formatCurrency(comp.annualAmount)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Pending Benefits */}
+                                {!previewData && extraComponents.filter(c => c.category === 'Benefits').map(comp => (
+                                    <div key={comp._id} className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-100 rounded-xl">
+                                        <span className="font-bold text-gray-800">{comp.name}</span>
+                                        <span className="text-[10px] text-yellow-600 font-bold uppercase">Pending Calculation</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* SIDEBAR */}
+                    <div className="space-y-6">
+                        {previewData && (
+                            <div className="bg-[#0f172a] text-white p-8 rounded-3xl shadow-xl space-y-8 sticky top-6">
+                                <div className="flex justify-between items-center border-b border-white/10 pb-4">
+                                    <h3 className="font-bold uppercase tracking-widest text-xs text-blue-400">Salary Snapshot</h3>
+                                    <Check size={20} className="text-blue-400" />
+                                </div>
+
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-end">
+                                        <div>
+                                            <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Net Take-Home</p>
+                                            <p className="text-4xl font-black text-white">₹{formatCurrency(totals?.netMonthly || 0)}</p>
+                                        </div>
+                                        <span className="bg-blue-500/20 text-blue-300 text-[10px] font-bold px-2 py-1 rounded uppercase">Monthly</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
+                                            <p className="text-[9px] uppercase font-bold text-gray-500 mb-1">Gross Earnings</p>
+                                            <p className="font-bold text-lg">₹{formatCurrency(totals?.grossMonthly || 0)}</p>
+                                        </div>
+                                        <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
+                                            <p className="text-[9px] uppercase font-bold text-gray-500 mb-1">Deductions</p>
+                                            <p className="font-bold text-lg text-red-400">₹{formatCurrency(totals?.deductionsMonthly || 0)}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-6 bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl shadow-lg border border-white/20">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <p className="text-[10px] uppercase font-bold text-blue-100 tracking-widest">Defined CTC</p>
+                                        </div>
+                                        <p className="text-3xl font-black">₹{formatCurrency(totals?.ctcYearly || 0)}</p>
+                                        <div className="mt-2 text-[10px] font-bold text-blue-200 opacity-80 uppercase">
+                                            Deterministic Evaluation: OK
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={handleAssign}
+                                    disabled={saving}
+                                    className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all disabled:opacity-50 shadow-xl shadow-blue-900/20 font-black text-sm uppercase tracking-widest"
+                                >
+                                    {saving ? "Saving..." : <><Save size={20} /> Finalize Assignment</>}
+                                </button>
+
+                                <p className="text-[10px] text-gray-500 text-center uppercase tracking-tighter">
+                                    Click Finalize to create an <strong>Immutable Snapshot</strong>
+                                </p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
+

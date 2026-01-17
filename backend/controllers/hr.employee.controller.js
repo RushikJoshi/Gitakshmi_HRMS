@@ -184,14 +184,14 @@ exports.preview = async (req, res) => {
 exports.list = async (req, res) => {
   try {
     console.log(`[EMPLOYEE_LIST] ${req.method} ${req.path} - Starting employee list request`);
-    
+
     // Step 1: Validate user authentication
     if (!req.user) {
       console.error("[EMPLOYEE_LIST] ERROR: req.user is missing. Auth middleware may not be applied correctly.");
-      return res.status(401).json({ 
-        success: false, 
-        error: "unauthorized", 
-        message: "User authentication required" 
+      return res.status(401).json({
+        success: false,
+        error: "unauthorized",
+        message: "User authentication required"
       });
     }
 
@@ -202,10 +202,10 @@ exports.list = async (req, res) => {
     if (!tenantId) {
       console.error("[EMPLOYEE_LIST] ERROR: tenantId not found in req.user.tenantId or req.tenantId");
       console.error("[EMPLOYEE_LIST] req.user:", JSON.stringify(req.user, null, 2));
-      return res.status(400).json({ 
-        success: false, 
-        error: "tenant_missing", 
-        message: "Tenant ID is required. Please ensure user is associated with a tenant." 
+      return res.status(400).json({
+        success: false,
+        error: "tenant_missing",
+        message: "Tenant ID is required. Please ensure user is associated with a tenant."
       });
     }
 
@@ -214,10 +214,10 @@ exports.list = async (req, res) => {
     // Step 3: Ensure tenantDB is available
     if (!req.tenantDB) {
       console.error("[EMPLOYEE_LIST] ERROR: req.tenantDB is not available. Tenant middleware may not be applied correctly.");
-      return res.status(500).json({ 
-        success: false, 
-        error: "tenant_db_unavailable", 
-        message: "Tenant database connection not available. Please check tenant middleware configuration." 
+      return res.status(500).json({
+        success: false,
+        error: "tenant_db_unavailable",
+        message: "Tenant database connection not available. Please check tenant middleware configuration."
       });
     }
 
@@ -235,17 +235,17 @@ exports.list = async (req, res) => {
     } catch (modelError) {
       console.error("[EMPLOYEE_LIST] ERROR: Failed to get Employee model:", modelError.message);
       console.error("[EMPLOYEE_LIST] Model error stack:", modelError.stack);
-      return res.status(500).json({ 
-        success: false, 
-        error: "model_error", 
-        message: "Failed to load Employee model. Please check database connection." 
+      return res.status(500).json({
+        success: false,
+        error: "model_error",
+        message: "Failed to load Employee model. Please check database connection."
       });
     }
 
     // Step 5: Build query filter with tenant isolation
     const { department, status } = req.query || {};
     const filter = { tenant: tenantId }; // Employee schema uses 'tenant' field, not 'tenantId'
-    
+
     if (department) {
       filter.department = department;
       console.log(`[EMPLOYEE_LIST] Filtering by department: ${department}`);
@@ -266,24 +266,24 @@ exports.list = async (req, res) => {
     let items;
     try {
       const query = Employee.find(filter)
-        .select("_id firstName lastName middleName email department departmentId role manager employeeId contactNo joiningDate profilePic status lastStep gender dob maritalStatus bloodGroup nationality fatherName motherName emergencyContactName emergencyContactNumber tempAddress permAddress experience jobType bankDetails education documents")
+        .select("_id firstName lastName middleName email department departmentId role manager employeeId contactNo joiningDate profilePic status lastStep gender dob maritalStatus bloodGroup nationality fatherName motherName emergencyContactName emergencyContactNumber tempAddress permAddress experience jobType bankDetails education documents salaryAssigned salaryLocked currentSnapshotId")
         .sort({ createdAt: -1 });
 
       // Safe populate - will not crash if references are missing
       query.populate('departmentId', 'name');
       query.populate('manager', 'firstName lastName employeeId');
-      
+
       items = await query.lean();
-      
+
       console.log(`[EMPLOYEE_LIST] Query successful. Found ${items.length} employees`);
     } catch (queryError) {
       console.error("[EMPLOYEE_LIST] ERROR: Database query failed:", queryError.message);
       console.error("[EMPLOYEE_LIST] Query error stack:", queryError.stack);
       console.error("[EMPLOYEE_LIST] Query error name:", queryError.name);
-      return res.status(500).json({ 
-        success: false, 
-        error: "query_failed", 
-        message: "Failed to fetch employees from database. Please check database connection and schema." 
+      return res.status(500).json({
+        success: false,
+        error: "query_failed",
+        message: "Failed to fetch employees from database. Please check database connection and schema."
       });
     }
 
@@ -297,13 +297,13 @@ exports.list = async (req, res) => {
     console.error("[EMPLOYEE_LIST] Error name:", err.name);
     console.error("[EMPLOYEE_LIST] Error message:", err.message);
     console.error("[EMPLOYEE_LIST] Error stack:", err.stack);
-    
+
     // Ensure we always return a response
     if (!res.headersSent) {
-      return res.status(500).json({ 
-        success: false, 
-        error: "internal_server_error", 
-        message: err.message || "An unexpected error occurred while fetching employees" 
+      return res.status(500).json({
+        success: false,
+        error: "internal_server_error",
+        message: err.message || "An unexpected error occurred while fetching employees"
       });
     }
   }
@@ -330,7 +330,7 @@ exports.create = async (req, res) => {
     const format = tenant?.meta?.empCodeFormat || "COMP_DEPT_NUM";
     const allowOverride = tenant?.meta?.empCodeAllowOverride || false;
 
-    const { firstName, lastName, department, customEmployeeId, departmentId, joiningDate, status, lastStep, ...restBody } = req.body;
+    const { firstName, lastName, department, customEmployeeId, departmentId, joiningDate, status, lastStep, applicantId, ...restBody } = req.body;
 
     let finalEmployeeId;
 
@@ -380,7 +380,47 @@ exports.create = async (req, res) => {
       createData.joiningDate = new Date(); // Default to now
     }
 
+    // --- NEW: Copy Salary Info from Applicant (Onboarding) ---
+    let applicantSnapshotId = null;
+    if (applicantId) {
+      try {
+        const Applicant = req.tenantDB.model('Applicant');
+        const applicant = await Applicant.findById(applicantId);
+
+        if (applicant) {
+          // 1. Copy Template ID
+          if (applicant.salaryTemplateId) {
+            createData.salaryTemplateId = applicant.salaryTemplateId;
+          }
+          // 2. Copy Snapshot Link (The immutable snapshot created during assignment)
+          if (applicant.salarySnapshot && applicant.salarySnapshot._id) {
+            applicantSnapshotId = applicant.salarySnapshot._id;
+            createData.currentSalarySnapshotId = applicantSnapshotId;
+            createData.currentSnapshotId = applicantSnapshotId; // Redundant field in schema, keeping sync
+            createData.salarySnapshots = [applicantSnapshotId];
+            createData.salaryAssigned = true;
+            createData.salaryLocked = true;
+          }
+        }
+      } catch (appErr) {
+        console.error("Error fetching applicant for onboarding:", appErr);
+      }
+    }
+
     const emp = await Employee.create(createData);
+
+    // --- NEW: Update Snapshot Ownership ---
+    if (applicantSnapshotId && emp) {
+      try {
+        const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
+        await EmployeeSalarySnapshot.findByIdAndUpdate(applicantSnapshotId, {
+          employee: emp._id
+        });
+        console.log(`[ONBOARDING] Linked Snapshot ${applicantSnapshotId} to Employee ${emp._id}`);
+      } catch (snapErr) {
+        console.error("Failed to update snapshot ownership:", snapErr);
+      }
+    }
 
     // Initialize Leave Balances if policy provided
     if (restBody.leavePolicy) {

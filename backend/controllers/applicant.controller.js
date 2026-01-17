@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const EmailService = require('../services/email.service');
+const SalaryEngine = require('../services/salaryEngine');
 const path = require('path');
 const fs = require('fs');
 
@@ -29,7 +30,7 @@ function logToDebug(message) {
         const logPath = path.join(__dirname, '../debug_email.log');
         const timestamp = new Date().toISOString();
         if (fs.existsSync(path.dirname(logPath))) {
-            fs.appendFileSync(logPath, `[${timestamp}] [APPLICANT] ${message}\n`);
+            // fs.appendFileSync(logPath, `[${timestamp}] [APPLICANT] ${message}\n`);
         }
     } catch (e) { console.error("Log failed", e); }
 }
@@ -173,10 +174,119 @@ exports.markInterviewCompleted = async (req, res) => {
 };
 
 /**
- * ASSIGN SALARY TO APPLICANT (LEGACY - REDIRECTED)
+ * ASSIGN SALARY TO APPLICANT (REFACTORED - CTC ONLY)
+ * POST /api/requirements/applicants/:id/assign-salary
  */
 exports.assignSalary = async (req, res) => {
-    res.status(410).json({ message: "This endpoint is deprecated. Use SalaryController.assign instead." });
+    try {
+        const { id } = req.params;
+        const { ctcAnnual } = req.body;
+
+        // Validation
+        if (!ctcAnnual || isNaN(ctcAnnual) || Number(ctcAnnual) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid Annual CTC is required"
+            });
+        }
+
+        const { Applicant } = getModels(req);
+
+        const applicant = await Applicant.findById(id);
+        if (!applicant) {
+            return res.status(404).json({
+                success: false,
+                message: "Applicant not found"
+            });
+        }
+
+        // Optional: Validate applicant status
+        if (applicant.status !== 'Selected' && applicant.status !== 'Offer Accepted') {
+            console.warn(`[ASSIGN_SALARY] Applicant ${id} status is ${applicant.status}, not Selected/Offer Accepted`);
+        }
+
+        // Use PayrollCalculator for calculation
+        const PayrollCalculator = require('../services/PayrollCalculator');
+
+        const breakdown = PayrollCalculator.calculateSalaryBreakup({
+            annualCTC: Number(ctcAnnual),
+            components: {} // Use default Indian payroll rules
+        });
+
+        // Validate the breakdown
+        const validation = PayrollCalculator.validateSnapshot(breakdown);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: "Salary calculation validation failed",
+                errors: validation.errors
+            });
+        }
+
+        // Create immutable snapshot in EmployeeSalarySnapshot collection
+        const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
+
+        const snapshot = await EmployeeSalarySnapshot.create({
+            applicant: applicant._id,
+            tenant: req.user.tenantId,
+            ctc: breakdown.annualCTC,
+            monthlyCTC: breakdown.monthlyCTC,
+            earnings: breakdown.earnings,
+            employeeDeductions: breakdown.employeeDeductions,
+            benefits: breakdown.benefits,
+            breakdown: breakdown.breakdown,
+            effectiveFrom: new Date(),
+            locked: true, // Auto-lock for applicants
+            lockedAt: new Date(),
+            lockedBy: req.user.id,
+            reason: 'JOINING',
+            createdBy: req.user.id
+        });
+
+        // Update applicant with salary info
+        applicant.salarySnapshot = {
+            ctc: breakdown.annualCTC,
+            monthlyCTC: breakdown.monthlyCTC,
+            earnings: breakdown.earnings,
+            employeeDeductions: breakdown.employeeDeductions,
+            benefits: breakdown.benefits,
+            breakdown: breakdown.breakdown,
+            // Legacy fields for backward compatibility
+            basicMonthly: breakdown.earnings.find(e => e.code === 'BASIC')?.monthlyAmount || 0,
+            hraMonthly: breakdown.earnings.find(e => e.code === 'HRA')?.monthlyAmount || 0,
+            grossA: breakdown.grossEarnings.monthly,
+            gratuity: breakdown.benefits.find(b => b.code === 'GRATUITY')?.monthlyAmount || 0,
+            grossB: breakdown.grossEarnings.monthly + (breakdown.benefits.find(b => b.code === 'GRATUITY')?.monthlyAmount || 0),
+            employerContributions: breakdown.totalBenefits.monthly,
+            ctcMonthly: breakdown.monthlyCTC,
+            ctcYearly: breakdown.annualCTC,
+            takeHomeMonthly: breakdown.netPay.monthly,
+            generatedAt: new Date()
+        };
+
+        applicant.salaryAssigned = true;
+        applicant.salaryLocked = true;
+        applicant.salarySnapshotId = snapshot._id;
+
+        await applicant.save();
+
+        res.json({
+            success: true,
+            message: "Salary assigned and locked successfully",
+            data: {
+                applicant: applicant,
+                snapshot: snapshot,
+                breakdown: breakdown
+            }
+        });
+
+    } catch (error) {
+        console.error("Assign Salary Error:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 };
 
 /**
@@ -246,16 +356,22 @@ exports.getApplicantById = async (req, res) => {
             });
         }
 
+        logToDebug(`[GET_APPLICANT] Request for ID: ${applicantId} under Tenant: ${req.tenantId}`);
+        console.log(`[GET_APPLICANT] Request for ID: ${applicantId} under Tenant: ${req.tenantId}`);
+
         const applicant = await Applicant.findById(applicantId)
             .populate('requirementId', 'jobTitle department')
-            .populate('salaryTemplateId');
+            .populate('salarySnapshotId');
 
         if (!applicant) {
+            console.warn(`[GET_APPLICANT] Applicant ID ${applicantId} NOT FOUND in DB for Tenant ${req.tenantId}`);
             return res.status(404).json({
                 success: false,
                 error: 'Applicant not found'
             });
         }
+
+        console.log(`[GET_APPLICANT] Found: ${applicant.name} (${applicant._id})`);
 
         res.json({
             success: true,

@@ -7,7 +7,9 @@ const PayslipController = require('../controllers/payslip.controller');
 
 // SALARY ROUTES (Phase 8: GET /salary/preview, POST /salary/assign)
 router.get('/salary/preview', authenticate, SalaryController.preview);
+router.post('/salary/preview', authenticate, SalaryController.preview); // Added for POST support
 router.post('/salary/assign', authenticate, SalaryController.assign);
+router.post('/salary/confirm', authenticate, SalaryController.confirm);
 
 // PAYROLL ROUTES (Phase 8: POST /payroll/run, GET /payroll/:period)
 router.post('/payroll/freeze-attendance', authenticate, PayrollEngineController.freezeAttendance);

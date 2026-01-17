@@ -100,8 +100,98 @@ const EmployeeSchema = new mongoose.Schema({
     panCard: { type: String, trim: true }
   },
 
-  // New Snapshot-based Payroll Reference
+  // ========================================
+  // SALARY SNAPSHOT SYSTEM (IMMUTABLE)
+  // ========================================
+
+  // Array of ALL salary snapshots (historical + current)
+  salarySnapshots: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeSalarySnapshot'
+  }],
+
+  // Current active snapshot (for quick access)
+  currentSalarySnapshotId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeSalarySnapshot',
+    default: null,
+    index: true
+  },
+
+  // NEW: State for Mandatory Salary Lock
+  salaryAssigned: { type: Boolean, default: false },
+  salaryLocked: { type: Boolean, default: false },
+  currentSnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
+
+  // Legacy reference (kept for backward compatibility - will phase out in favor of currentSnapshotId)
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
+  currentSalarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
+
+  // ========================================
+  // PROMOTION & CAREER PROGRESSION
+  // ========================================
+
+  // Current designation/title
+  designation: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Current grade/level
+  grade: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Last promotion date
+  lastPromotionDate: {
+    type: Date
+  },
+
+  // Last increment date
+  lastIncrementDate: {
+    type: Date
+  },
+
+  // Last salary revision date
+  lastRevisionDate: {
+    type: Date
+  },
+
+  // ========================================
+  // PROMOTION & CAREER PROGRESSION
+  // ========================================
+
+  // Current designation/title
+  designation: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Current grade/level
+  grade: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Last promotion date
+  lastPromotionDate: {
+    type: Date
+  },
+
+  // Last increment date
+  lastIncrementDate: {
+    type: Date
+  },
+
+  // Last salary revision date
+  lastRevisionDate: {
+    type: Date
+  },
 
   meta: { type: Object, default: {} },
   location: [{

@@ -59,6 +59,7 @@ function registerModels(db, tenantId) {
     const PayslipSchema = require("../models/Payslip");
     const CompanyPayrollRuleSchema = require("../models/CompanyPayrollRule");
     // SalaryStructure is now GLOBAL - removed from here
+    // Candidate Core & Tracker Models
     const CandidateSchema = require("../models/Candidate");
     const TrackerCandidateSchema = require("../models/TrackerCandidate");
     const CandidateStatusLogSchema = require("../models/CandidateStatusLog");
@@ -67,6 +68,7 @@ function registerModels(db, tenantId) {
     const EmployeeSalarySnapshotSchema = require("../models/EmployeeSalarySnapshot");
     const AttendanceSnapshotSchema = require("../models/AttendanceSnapshot");
     const PayrollRunSnapshotSchema = require("../models/PayrollRunSnapshot");
+    const SalaryRevisionSchema = require("../models/SalaryRevision");
 
     // Register models using connection.model() - only register if not already registered
     if (!db.models.Employee) db.model("Employee", EmployeeSchema);
@@ -101,7 +103,7 @@ function registerModels(db, tenantId) {
     if (!db.models.Payslip) db.model("Payslip", PayslipSchema);
     if (!db.models.CompanyPayrollRule) db.model("CompanyPayrollRule", CompanyPayrollRuleSchema);
     // SalaryStructure removed - GLOBAL
-    if (!db.models.Candidate) db.model("Candidate", CandidateSchema);
+    if (!db.models.Candidate) db.model("Candidate", CandidateSchema); // Ensure consistent casing
     if (!db.models.TrackerCandidate) db.model("TrackerCandidate", TrackerCandidateSchema);
     if (!db.models.CandidateStatusLog) db.model("CandidateStatusLog", CandidateStatusLogSchema);
     if (!db.models.SalaryAssignment) db.model("SalaryAssignment", SalaryAssignmentSchema);
@@ -109,10 +111,14 @@ function registerModels(db, tenantId) {
     if (!db.models.EmployeeSalarySnapshot) db.model("EmployeeSalarySnapshot", EmployeeSalarySnapshotSchema);
     if (!db.models.AttendanceSnapshot) db.model("AttendanceSnapshot", AttendanceSnapshotSchema);
     if (!db.models.PayrollRunSnapshot) db.model("PayrollRunSnapshot", PayrollRunSnapshotSchema);
+    if (!db.models.SalaryRevision) db.model("SalaryRevision", SalaryRevisionSchema);
 
     // Dynamic Requirement Forms
     const RequirementTemplateSchema = require("../models/RequirementTemplate");
     if (!db.models.RequirementTemplate) db.model("RequirementTemplate", RequirementTemplateSchema);
+
+    const CounterSchema = require("../models/Counter");
+    if (!db.models.Counter) db.model("Counter", CounterSchema);
 
 
     registeredModels.add(tenantId);
@@ -164,13 +170,15 @@ function getTenantDB(tenantId) {
 
   // Create tenant DB (reuses underlying connection)
   const dbName = `company_${tenantId}`;
+
   const tenantDb = mongoose.connection.useDb(dbName, { useCache: true });
 
-  registerModels(tenantDb, tenantId);
+  registerModels(tenantDb, tenantId); // Register models once
 
   tenantDbs[tenantId] = tenantDb;
+
   console.log(
-    `Tenant DB prepared: ${dbName} (${Object.keys(tenantDbs).length}/${MAX_CACHED_CONNECTIONS})`
+    `Tenant DB prepared: ${dbName}`
   );
 
   return tenantDb;

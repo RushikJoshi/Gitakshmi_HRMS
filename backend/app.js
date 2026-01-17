@@ -88,6 +88,10 @@ const payrollRoutes = require('./routes/payroll.routes');
 const deductionRoutes = require('./routes/deduction.routes');
 const salaryStructureRoutes = require('./routes/salaryStructure.routes');
 const payrollRuleRoutes = require('./routes/payrollRule.routes');
+const salaryRevisionRoutes = require('./routes/salaryRevision.routes');
+
+// Company ID Configuration
+const companyIdConfigRoutes = require('./routes/companyIdConfig.routes');
 
 /* ===============================
    ROUTES (NO TENANT)
@@ -98,6 +102,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/company', companyRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/company-id-config', companyIdConfigRoutes);
 
 /* ===============================
    TENANT MIDDLEWARE
@@ -125,6 +130,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salary-structure', salaryStructureRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/payroll', payrollRoutes);
+app.use('/api/salary', require('./routes/salary.routes'));
 
 // Optional modules - handle if missing/failing
 try {
@@ -134,6 +140,7 @@ try {
 }
 
 app.use('/api/payroll-rules', payrollRuleRoutes);
+app.use('/api/hr', salaryRevisionRoutes);
 
 try {
     app.use('/api/tracker', require('./routes/tracker.routes'));

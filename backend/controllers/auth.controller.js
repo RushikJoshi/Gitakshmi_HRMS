@@ -83,7 +83,7 @@ exports.loginHrController = async (req, res) => {
       '----------------------\n'
     ].join('\n');
 
-    try { fs.appendFileSync(logFile, logData); } catch (e) { }
+    // try { fs.appendFileSync(logFile, logData); } catch (e) { }
 
     if (storedEmail !== incomingEmail || storedPassword !== incomingPassword) {
       // console.warn(`HR login failed for companyCode=${companyCode} email=${incomingEmail} (storedEmail=${storedEmail})`);
