@@ -671,18 +671,15 @@ exports.createTemplate = async (req, res) => {
             });
         }
 
-        // 5. Calculate salary structure
+        // 5. Calculate salary structure using PayrollCalculator
         let calculated;
         try {
-            calculated = await salaryCalculationService.calculateSalaryStructure(
-                annualCTC,
-                finalEarnings,
-                settings || {},
-                deductionsInput || [],
-                benefitsInput || [],
-                req.tenantDB,
-                tenantId
-            );
+            const PayrollCalculator = require('../services/PayrollCalculator');
+
+            calculated = PayrollCalculator.calculateSalaryBreakup({
+                annualCTC: Number(annualCTC),
+                components: settings || {}
+            });
         } catch (calcError) {
             console.error('Salary calculation error:', calcError);
             return res.status(400).json({ success: false, error: `Calculation failed: ${calcError.message}` });
@@ -877,32 +874,27 @@ exports.previewTemplate = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Template not found' });
         }
 
-        // Use salary calculation service to get complete breakdown
-        const salaryCalculationService = require('../services/salaryCalculation.service');
+        // Use PayrollCalculator to get complete breakdown
+        const PayrollCalculator = require('../services/PayrollCalculator');
 
         // Allow overriding annualCTC via query parameter for interactive previews
         const overrideAnnualCTC = req.query?.annualCTC ? Number(req.query.annualCTC) : null;
         if (overrideAnnualCTC && !isNaN(overrideAnnualCTC)) {
             try {
-                const calculated = await salaryCalculationService.calculateSalaryStructure(
-                    overrideAnnualCTC,
-                    template.earnings || [],
-                    template.settings || {},
-                    template.employeeDeductions || [],
-                    null, // benefitsInput - will be fetched
-                    req.tenantDB,
-                    tenantId
-                );
+                const calculated = PayrollCalculator.calculateSalaryBreakup({
+                    annualCTC: overrideAnnualCTC,
+                    components: template.settings || {}
+                });
 
                 const salarySnapshot = {
                     salaryTemplateId: template._id,
                     earnings: calculated.earnings || [],
-                    employerContributions: calculated.benefits || calculated.employerContributions || [],
-                    employeeDeductions: calculated.deductions || calculated.employeeDeductions || [],
-                    grossA: { monthly: calculated.monthly.grossEarnings, yearly: calculated.yearly.grossEarnings },
-                    takeHome: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
-                    netSalary: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
-                    ctc: { monthly: calculated.monthly.ctc, yearly: calculated.yearly.totalCTC },
+                    employerContributions: calculated.benefits || [],
+                    employeeDeductions: calculated.employeeDeductions || [],
+                    grossA: { monthly: calculated.grossEarnings.monthly, yearly: calculated.grossEarnings.yearly },
+                    takeHome: { monthly: calculated.netPay.monthly, yearly: calculated.netPay.yearly },
+                    netSalary: { monthly: calculated.netPay.monthly, yearly: calculated.netPay.yearly },
+                    ctc: { monthly: calculated.monthlyCTC, yearly: calculated.annualCTC },
                     calculatedAt: new Date()
                 };
 
@@ -913,18 +905,21 @@ exports.previewTemplate = async (req, res) => {
             }
         }
 
-        const calculated = await salaryCalculationService.calculateCompleteSalaryBreakdown(template, req.tenantDB, tenantId);
+        const calculated = PayrollCalculator.calculateSalaryBreakup({
+            annualCTC: template.annualCTC,
+            components: template.settings || {}
+        });
 
         const salarySnapshot = {
             salaryTemplateId: template._id,
             templateName: template.templateName,
             earnings: calculated.earnings || [],
-            employerContributions: calculated.benefits || calculated.employerContributions || [],
-            employeeDeductions: calculated.deductions || calculated.employeeDeductions || [],
-            grossA: { monthly: calculated.monthly.grossEarnings, yearly: calculated.yearly.grossEarnings },
-            takeHome: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
-            netSalary: { monthly: calculated.monthly.netSalary, yearly: calculated.yearly.netSalary },
-            ctc: { monthly: calculated.monthly.ctc, yearly: calculated.yearly.totalCTC },
+            employerContributions: calculated.benefits || [],
+            employeeDeductions: calculated.employeeDeductions || [],
+            grossA: { monthly: calculated.grossEarnings.monthly, yearly: calculated.grossEarnings.yearly },
+            takeHome: { monthly: calculated.netPay.monthly, yearly: calculated.netPay.yearly },
+            netSalary: { monthly: calculated.netPay.monthly, yearly: calculated.netPay.yearly },
+            ctc: { monthly: calculated.monthlyCTC, yearly: calculated.annualCTC },
             calculatedAt: new Date()
         };
 
@@ -1014,18 +1009,15 @@ exports.updateTemplate = async (req, res) => {
             });
         }
 
-        // 6. Calculate new salary structure
+        // 6. Calculate new salary structure using PayrollCalculator
         let calculated;
         try {
-            calculated = await salaryCalculationService.calculateSalaryStructure(
-                annualCTC || template.annualCTC,
-                normalizedEarningsForCalc || template.earnings,
-                settings || template.settings,
-                deductionsInput || template.employeeDeductions,
-                benefitsInput || template.employerDeductions,
-                req.tenantDB,
-                tenantId
-            );
+            const PayrollCalculator = require('../services/PayrollCalculator');
+
+            calculated = PayrollCalculator.calculateSalaryBreakup({
+                annualCTC: Number(annualCTC || template.annualCTC),
+                components: settings || template.settings || {}
+            });
         } catch (calcError) {
             console.error('Salary calculation error during update:', calcError);
             return res.status(400).json({ success: false, error: `Calculation failed: ${calcError.message}` });
