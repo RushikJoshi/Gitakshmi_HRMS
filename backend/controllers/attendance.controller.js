@@ -6,6 +6,7 @@ const EmployeeSchema = require('../models/Employee');
 const HolidaySchema = require('../models/Holiday');
 const LeaveRequestSchema = require('../models/LeaveRequest');
 const AuditLogSchema = require('../models/AuditLog');
+const FaceDataSchema = require('../models/FaceData');
 // const OfficeSchema = require('../models/OfficeSchema.model');
 // const CompanyProfile = require('../models/CompanyProfile');
 const Employee = require('../models/Employee');
@@ -20,6 +21,7 @@ const getModels = (req) => {
         Holiday: db.model('Holiday', HolidaySchema),
         LeaveRequest: db.model('LeaveRequest', LeaveRequestSchema),
         AuditLog: db.model('AuditLog', AuditLogSchema),
+        FaceData: db.model('FaceData', FaceDataSchema),
         // Office: db.model('Office', CompanyProfile)
         Employee: db.model('Employee', Employee)
     };
@@ -1197,8 +1199,6 @@ exports.uploadExcel = async (req, res) => {
 
 // ========== FACE AUTHENTICATION ENDPOINTS ==========
 
-const FaceDataSchema = require('../models/FaceData');
-
 // 🔹 Register Face Data
 exports.registerFace = async (req, res) => {
     try {
@@ -1230,7 +1230,7 @@ exports.registerFace = async (req, res) => {
         }
 
         // Validate image data
-        if (!faceImageData.startsWith('data:image') && faceImageData.length < 1000) {
+        if (!faceImageData.startsWith('data:image') || faceImageData.length < 1000) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid face image data. Please provide a valid base64 encoded image.'

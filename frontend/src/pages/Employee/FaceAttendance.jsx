@@ -275,11 +275,19 @@ const FaceAttendance = () => {
         throw new Error('Failed to capture image. Please ensure camera is working.');
       }
 
+      console.log('📸 Face image captured, size:', imageData.length, 'bytes');
+      console.log('📤 Sending registration request with payload:', {
+        faceImageData: imageData.substring(0, 100) + '...',
+        registrationNotes: `Self registration - ${registrationName}`
+      });
+
       // Call face register API
       const res = await api.post('/attendance/face/register', {
         faceImageData: imageData,
         registrationNotes: `Self registration - ${registrationName}`
       });
+
+      console.log('✅ Registration response:', res.data);
 
       if (res.data.success) {
         setStatus('success');
@@ -295,7 +303,8 @@ const FaceAttendance = () => {
         }, 3000);
       }
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('❌ Registration error:', err);
+      console.error('Error response:', err.response?.data);
       setStatus('error');
       setMessage(err.response?.data?.message || err.message || 'Face registration failed');
       setCapturing(false);
@@ -328,9 +337,9 @@ const FaceAttendance = () => {
         </div>
 
         {/* Mode Toggle */}
-        {faceRegistered && (
-          <div className="flex justify-center mb-8">
-            <div className="inline-flex bg-slate-800/50 backdrop-blur-sm rounded-2xl p-1.5 shadow-xl border border-slate-700/50">
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex bg-slate-800/50 backdrop-blur-sm rounded-2xl p-1.5 shadow-xl border border-slate-700/50">
+            {faceRegistered && (
               <button
                 onClick={() => { setMode('attendance'); setStatus(null); setMessage(''); }}
                 className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${mode === 'attendance'
@@ -341,19 +350,19 @@ const FaceAttendance = () => {
                 <CheckCircle className="w-5 h-5" />
                 Mark Attendance
               </button>
-              <button
-                onClick={() => { setMode('register'); setStatus(null); setMessage(''); }}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${mode === 'register'
-                  ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg scale-105'
-                  : 'text-slate-300 hover:text-white'
-                  }`}
-              >
-                <RotateCcw className="w-5 h-5" />
-                Update Face
-              </button>
-            </div>
+            )}
+            <button
+              onClick={() => { setMode('register'); setStatus(null); setMessage(''); }}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${mode === 'register'
+                ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg scale-105'
+                : 'text-slate-300 hover:text-white'
+                }`}
+            >
+              <UserPlus className="w-5 h-5" />
+              {faceRegistered ? 'Update Face' : 'Register Face'}
+            </button>
           </div>
-        )}
+        </div>
 
         {/* Main Content */}
         <div className="grid lg:grid-cols-2 gap-8">

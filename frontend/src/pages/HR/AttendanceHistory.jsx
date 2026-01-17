@@ -16,6 +16,9 @@ export default function AttendanceHistory() {
   const [faceStatusMap, setFaceStatusMap] = useState({}); // Track face registration status
   const [loadingFaceStatus, setLoadingFaceStatus] = useState({}); // Track loading states
   const [deletingFaceId, setDeletingFaceId] = useState(null);
+  const [showFaceRegistrationModal, setShowFaceRegistrationModal] = useState(false);
+  const [selectedEmployeeForFace, setSelectedEmployeeForFace] = useState(null);
+  const [registeringFaceId, setRegisteringFaceId] = useState(null);
   const pageSize = 10;
 
   //     { 
@@ -314,6 +317,45 @@ export default function AttendanceHistory() {
     await checkFaceRegistration(employeeId);
   };
 
+  // Handle face registration button click
+  const handleRegisterFace = (employee) => {
+    setSelectedEmployeeForFace(employee);
+    setShowFaceRegistrationModal(true);
+  };
+
+  // Handle closing the face registration modal
+  const closeFaceRegistrationModal = () => {
+    setShowFaceRegistrationModal(false);
+    setSelectedEmployeeForFace(null);
+  };
+
+  // Submit face registration
+  const handleSubmitFaceRegistration = async () => {
+    if (!selectedEmployeeForFace) return;
+
+    try {
+      setRegisteringFaceId(selectedEmployeeForFace.employee._id);
+      // Navigate to face registration page or open webcam for this employee
+      // This will be handled by FaceAttendance component or modal
+      const res = await api.post(`/attendance/face/register`, {
+        employeeId: selectedEmployeeForFace.employee._id,
+        status: 'pending'
+      });
+      
+      if (res.data.success) {
+        alert('Face registration initiated. Please ask the employee to complete registration.');
+        closeFaceRegistrationModal();
+        // Refresh the face status
+        await checkFaceRegistration(selectedEmployeeForFace.employee._id);
+      }
+    } catch (err) {
+      console.error('Error initiating face registration:', err);
+      alert(err.response?.data?.message || 'Failed to initiate face registration');
+    } finally {
+      setRegisteringFaceId(null);
+    }
+  };
+
   // Load face status for all employees when attendance data is loaded
   useEffect(() => {
     if (attendance.length > 0) {
@@ -593,6 +635,20 @@ export default function AttendanceHistory() {
                           <RefreshCw size={16} />
                         </button>
                       )}
+                      {!faceStatusMap[employee.employee.employeeId] && !loadingFaceStatus[employee.employee.employeeId] && (
+                        <button
+                          onClick={() => handleRegisterFace(employee)}
+                          disabled={registeringFaceId === employee.employee.employeeId}
+                          className="p-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-400 hover:text-emerald-600 disabled:opacity-50 rounded-xl transition"
+                          title="Register Face"
+                        >
+                          {registeringFaceId === employee.employee.employeeId ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Camera size={16} />
+                          )}
+                        </button>
+                      )}
                       <button
                         className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 group-hover:text-slate-600 transition"
                         title="More Options"
@@ -645,6 +701,75 @@ export default function AttendanceHistory() {
           </div>
         </div>
       </div>
+
+      {/* Face Registration Modal */}
+      {showFaceRegistrationModal && selectedEmployeeForFace && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-8 space-y-6">
+            {/* Header */}
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">
+                Face Registration
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Register face for <span className="font-bold text-slate-800 dark:text-white">{selectedEmployeeForFace.employee.firstName} {selectedEmployeeForFace.employee.lastName}</span>
+              </p>
+            </div>
+
+            {/* Employee Info */}
+            <div className="bg-slate-50 dark:bg-slate-950 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-black text-sm shadow-lg">
+                  {selectedEmployeeForFace.avatar}
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tighter">
+                    {selectedEmployeeForFace.employee.firstName} {selectedEmployeeForFace.employee.lastName}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                    {selectedEmployeeForFace.employee.employeeId} • {selectedEmployeeForFace.employee.role}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Message */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4">
+              <p className="text-sm text-blue-700 dark:text-blue-300 font-bold">
+                <span className="block font-black mb-1">📸 Registration Process</span>
+                Click "Start Registration" to initiate the face registration process. The employee will need to use their camera to capture face data.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={closeFaceRegistrationModal}
+                className="flex-1 px-4 py-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitFaceRegistration}
+                disabled={registeringFaceId === selectedEmployeeForFace.employee._id}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 disabled:opacity-50 transition"
+              >
+                {registeringFaceId === selectedEmployeeForFace.employee._id ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Camera size={16} />
+                    Start Registration
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
