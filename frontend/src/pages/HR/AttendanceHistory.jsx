@@ -13,12 +13,14 @@ export default function AttendanceHistory() {
   const [selectedDepartment, setSelectedDepartment] = useState('All Departments');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [currentPage, setCurrentPage] = useState(1);
+  const [attendance, setAttendance] = useState([]);
   const [faceStatusMap, setFaceStatusMap] = useState({}); // Track face registration status
   const [loadingFaceStatus, setLoadingFaceStatus] = useState({}); // Track loading states
   const [deletingFaceId, setDeletingFaceId] = useState(null);
   const [showFaceRegistrationModal, setShowFaceRegistrationModal] = useState(false);
   const [selectedEmployeeForFace, setSelectedEmployeeForFace] = useState(null);
   const [registeringFaceId, setRegisteringFaceId] = useState(null);
+  const [loading, setLoading] = useState(true);
   const pageSize = 10;
 
   //     { 
@@ -215,12 +217,34 @@ export default function AttendanceHistory() {
   // }
   // console.log(employeeAttendance());
 
-  const stats = [
-    { label: 'Total Employees', value: '156', icon: Users, color: 'blue', bgColor: 'bg-blue-500' },
-    { label: 'Avg Attendance', value: '91%', icon: TrendingUp, color: 'green', bgColor: 'bg-green-500' },
-    { label: 'Total Late Arrivals', value: '28', icon: AlertCircle, color: 'orange', bgColor: 'bg-orange-500' },
-    { label: 'Avg Working Hours', value: '8.5h', icon: Clock, color: 'purple', bgColor: 'bg-purple-500' },
-  ];
+  const calculateStats = () => {
+    if (attendance.length === 0) {
+      return [
+        { label: 'Total Employees', value: '0', icon: Users, color: 'blue', bgColor: 'bg-blue-500' },
+        { label: 'Avg Attendance', value: '0%', icon: TrendingUp, color: 'green', bgColor: 'bg-green-500' },
+        { label: 'Total Late Arrivals', value: '0', icon: AlertCircle, color: 'orange', bgColor: 'bg-orange-500' },
+        { label: 'Avg Working Hours', value: '0h', icon: Clock, color: 'purple', bgColor: 'bg-purple-500' },
+      ];
+    }
+
+    const totalEmployees = attendance.length;
+    const avgAttendance = Math.round(
+      attendance.reduce((sum, emp) => sum + (emp.attendanceRate || 0), 0) / attendance.length
+    );
+    const totalLateArrivals = attendance.reduce((sum, emp) => sum + (emp.lateArrivals || 0), 0);
+    const avgWorkingHours = (
+      attendance.reduce((sum, emp) => sum + (emp.workingHours || 0), 0) / attendance.length
+    ).toFixed(1);
+
+    return [
+      { label: 'Total Employees', value: totalEmployees.toString(), icon: Users, color: 'blue', bgColor: 'bg-blue-500' },
+      { label: 'Avg Attendance', value: `${avgAttendance}%`, icon: TrendingUp, color: 'green', bgColor: 'bg-green-500' },
+      { label: 'Total Late Arrivals', value: totalLateArrivals.toString(), icon: AlertCircle, color: 'orange', bgColor: 'bg-orange-500' },
+      { label: 'Avg Working Hours', value: `${avgWorkingHours}h`, icon: Clock, color: 'purple', bgColor: 'bg-purple-500' },
+    ];
+  };
+
+  const stats = calculateStats();
 
   const departmentStats = [
     { department: 'Engineering', present: 24, total: 28, rate: '86%', avgHours: '8.8h' },
@@ -262,8 +286,6 @@ export default function AttendanceHistory() {
       throw error;
     }
   };
-
-  const [attendance, setAttendance] = useState([]);
 
   // Fetch employee face registration status
   const checkFaceRegistration = async (employeeId) => {
@@ -369,8 +391,16 @@ export default function AttendanceHistory() {
 
   useEffect(() => {
     const fetchAttendance = async () => {
-      const data = await getEmployeeAttendance();
-      setAttendance(data);
+      try {
+        setLoading(true);
+        const data = await getEmployeeAttendance();
+        setAttendance(data);
+      } catch (err) {
+        console.error('Error fetching attendance:', err);
+        setAttendance([]);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchAttendance();
@@ -381,6 +411,17 @@ export default function AttendanceHistory() {
   // })
 
   // console.log(totalDays);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-slate-600 dark:text-slate-400 text-lg font-bold">Loading attendance data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -659,6 +700,17 @@ export default function AttendanceHistory() {
                   </td>
                 </tr>
               ))}
+              {attendance.length === 0 && (
+                <tr>
+                  <td colSpan="10" className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <AlertCircle className="w-12 h-12 text-slate-300" />
+                      <p className="text-slate-500 dark:text-slate-400 font-bold text-lg">No attendance records found</p>
+                      <p className="text-slate-400 dark:text-slate-500 text-sm">There are no employee attendance records to display</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

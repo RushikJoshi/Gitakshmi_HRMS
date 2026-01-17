@@ -2152,7 +2152,7 @@ function processCandidateSalary(structure) {
         };
     });
 
-    const processedDeductions = employeeDeductions.map(comp => {
+    const processedDeductions = deductions.map(comp => {
         const k = normalizeKey(comp.label);
         flatData[`${k}_monthly`] = formatCurrency(comp.monthly);
         flatData[`${k}_yearly`] = formatCurrency(comp.yearly);
@@ -2262,32 +2262,6 @@ function processCandidateSalary(structure) {
 // Helper to round to 2 decimals
 const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
 
-
-
-        const fileName = `joining_letter_${applicantId}_${Date.now()}.docx`;
-        const outputPath = path.join(outputDir, fileName);
-        await fsPromises.writeFile(outputPath, outputBuffer);
-
-        const { Applicant: ApplicantModel } = getModels(req);
-        await ApplicantModel.findByIdAndUpdate(applicantId, {
-            joiningLetterPath: `/uploads/joining_letters/${fileName}`,
-            joiningLetterGeneratedAt: new Date()
-        });
-
-        res.json({
-            success: true,
-            message: 'Joining letter generated successfully',
-            data: {
-                downloadUrl: `/uploads/joining_letters/${fileName}`,
-                fileName,
-                generatedAt: new Date()
-            }
-        });
-
-    } catch (error) {
-        console.error('❌ Generate Joining Letter Error:', error);
-        res.status(500).json({ success: false, message: 'Failed to generate joining letter', error: error.message });
-    }
-};
+module.exports = exports;
 
 
