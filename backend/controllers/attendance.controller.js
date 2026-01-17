@@ -1194,3 +1194,317 @@ exports.uploadExcel = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// ========== FACE AUTHENTICATION ENDPOINTS ==========
+
+const FaceDataSchema = require('../models/FaceData');
+
+// 🔹 Register Face Data
+exports.registerFace = async (req, res) => {
+    try {
+        const { faceImageData, registrationNotes } = req.body;
+        const employeeId = req.user.id;
+        const tenantId = req.tenantId || req.body.tenantId;
+
+        if (!faceImageData) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image data is required'
+            });
+        }
+
+        const { FaceData } = getModels(req);
+
+        // Check if employee already has a registered face
+        const existingFace = await FaceData.findOne({
+            tenant: tenantId,
+            employee: employeeId,
+            status: 'active'
+        });
+
+        if (existingFace) {
+            return res.status(400).json({
+                success: false,
+                message: 'This employee already has a registered face. Please delete or update the existing registration.'
+            });
+        }
+
+        // Validate image data
+        if (!faceImageData.startsWith('data:image') && faceImageData.length < 1000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid face image data. Please provide a valid base64 encoded image.'
+            });
+        }
+
+        // Create new face record
+        const faceData = new FaceData({
+            tenant: tenantId,
+            employee: employeeId,
+            faceImageData,
+            registrationNotes,
+            registeredBy: req.user.id,
+            deviceInfo: req.headers['user-agent'],
+            ipAddress: req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress,
+            status: 'active',
+            isVerified: true,
+            verifiedAt: new Date(),
+            verifiedBy: req.user.id
+        });
+
+        await faceData.save();
+
+        res.status(201).json({
+            success: true,
+            message: 'Face registered successfully',
+            data: {
+                faceDataId: faceData._id,
+                employeeId: faceData.employee,
+                registeredAt: faceData.registeredAt
+            }
+        });
+
+    } catch (err) {
+        console.error('Face registration error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Face registration failed',
+            error: err.message
+        });
+    }
+};
+
+// 🔹 Verify Face (Mark Attendance with Face)
+exports.verifyFaceAttendance = async (req, res) => {
+    try {
+        const { faceImageData, location } = req.body;
+        const employeeId = req.user.id;
+        const tenantId = req.tenantId || req.body.tenantId;
+
+        if (!faceImageData) {
+            return res.status(400).json({
+                success: false,
+                message: 'Face image data is required'
+            });
+        }
+
+        if (!location || !location.lat || !location.lng) {
+            return res.status(400).json({
+                success: false,
+                message: 'Location data is required'
+            });
+        }
+
+        const { FaceData, Attendance, Employee } = getModels(req);
+
+        // Check if employee has registered face
+        const registeredFace = await FaceData.findOne({
+            tenant: tenantId,
+            employee: employeeId,
+            status: 'active'
+        });
+
+        if (!registeredFace) {
+            return res.status(404).json({
+                success: false,
+                message: 'No registered face found. Please register your face first.'
+            });
+        }
+
+        // Check location accuracy
+        const employee = await Employee.findOne({ _id: employeeId }).lean();
+        
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                message: 'Employee record not found'
+            });
+        }
+
+        if (location.accuracy > (employee.allowedAccuracy || 100)) {
+            return res.status(400).json({
+                success: false,
+                message: `Location accuracy too low. Required: ${employee.allowedAccuracy || 100}m, Got: ${location.accuracy}m`
+            });
+        }
+
+        // Check geofence (if applicable)
+        const demoGeofence = [
+            { "lat": 23.03010, "lng": 72.51790 },
+            { "lat": 23.03010, "lng": 72.51830 },
+            { "lat": 23.03040, "lng": 72.51830 },
+            { "lat": 23.03040, "lng": 72.51790 }
+        ];
+
+        if (employee.geofance && employee.geofance.length > 0) {
+            const inside = isInsidePolygon(location, employee.geofance);
+            if (!inside) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'You are outside the office location'
+                });
+            }
+        }
+
+        // Check if attendance already marked
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        today.setHours(0, 0, 0, 0);
+
+        let attendance = await Attendance.findOne({
+            employee: employeeId,
+            tenant: tenantId,
+            date: today
+        });
+
+        if (attendance && attendance.checkIn) {
+            return res.status(400).json({
+                success: false,
+                message: 'Attendance already marked for today',
+                data: { checkInTime: attendance.checkIn }
+            });
+        }
+
+        // Create or update attendance
+        if (!attendance) {
+            attendance = new Attendance({
+                tenant: tenantId,
+                employee: employeeId,
+                date: today,
+                checkIn: now,
+                status: 'present',
+                logs: []
+            });
+        }
+
+        attendance.logs.push({
+            time: now,
+            type: 'IN',
+            location: `${location.lat}, ${location.lng}`,
+            device: 'Face Recognition',
+            ip: req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress
+        });
+
+        await attendance.save();
+
+        // Update face data usage
+        await FaceData.updateOne(
+            { _id: registeredFace._id },
+            {
+                $set: { lastUsedAt: now },
+                $inc: { usageCount: 1 }
+            }
+        );
+
+        res.json({
+            success: true,
+            message: 'Attendance marked successfully via face recognition',
+            data: {
+                attendanceId: attendance._id,
+                checkInTime: attendance.checkIn,
+                employee: {
+                    id: employee._id,
+                    name: `${employee.firstName} ${employee.lastName}`,
+                    role: employee.role
+                },
+                location: {
+                    latitude: location.lat,
+                    longitude: location.lng,
+                    accuracy: location.accuracy
+                }
+            }
+        });
+
+    } catch (err) {
+        console.error('Face verification error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Face verification failed',
+            error: err.message
+        });
+    }
+};
+
+// 🔹 Get Face Registration Status
+exports.getFaceStatus = async (req, res) => {
+    try {
+        const employeeId = req.user.id;
+        const tenantId = req.tenantId;
+
+        const { FaceData } = getModels(req);
+
+        const faceData = await FaceData.findOne({
+            tenant: tenantId,
+            employee: employeeId,
+            status: 'active'
+        }).select('-faceImageData -faceDescriptor -faceEmbedding');
+
+        if (!faceData) {
+            return res.json({
+                success: true,
+                isRegistered: false,
+                message: 'Face not registered. Please register your face first.'
+            });
+        }
+
+        res.json({
+            success: true,
+            isRegistered: true,
+            data: {
+                registeredAt: faceData.registeredAt,
+                isVerified: faceData.isVerified,
+                usageCount: faceData.usageCount,
+                lastUsedAt: faceData.lastUsedAt,
+                quality: faceData.quality
+            }
+        });
+
+    } catch (err) {
+        console.error('Get face status error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get face status',
+            error: err.message
+        });
+    }
+};
+
+// 🔹 Delete Face Registration
+exports.deleteFace = async (req, res) => {
+    try {
+        const employeeId = req.user.id;
+        const tenantId = req.tenantId;
+
+        const { FaceData } = getModels(req);
+
+        const result = await FaceData.updateOne(
+            {
+                tenant: tenantId,
+                employee: employeeId
+            },
+            {
+                $set: { status: 'inactive' }
+            }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Face registration not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Face registration deleted successfully'
+        });
+
+    } catch (err) {
+        console.error('Delete face error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete face registration',
+            error: err.message
+        });
+    }
+};

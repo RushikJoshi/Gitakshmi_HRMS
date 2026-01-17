@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, TrendingUp, Users, Download, Filter, Search,
   ChevronLeft, ChevronRight, UserCheck, AlertCircle, MapPin,
-  MoreVertical, Eye, Edit2, FileText, BarChart3, PieChart
+  MoreVertical, Eye, Edit2, FileText, BarChart3, PieChart,
+  Camera, CheckCircle, XCircle, Trash2, RefreshCw, Loader2
 } from 'lucide-react';
 import api from '../../utils/api';
 
@@ -12,6 +13,9 @@ export default function AttendanceHistory() {
   const [selectedDepartment, setSelectedDepartment] = useState('All Departments');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [currentPage, setCurrentPage] = useState(1);
+  const [faceStatusMap, setFaceStatusMap] = useState({}); // Track face registration status
+  const [loadingFaceStatus, setLoadingFaceStatus] = useState({}); // Track loading states
+  const [deletingFaceId, setDeletingFaceId] = useState(null);
   const pageSize = 10;
 
   //     { 
@@ -236,6 +240,12 @@ export default function AttendanceHistory() {
       : 'bg-purple-50 text-purple-700 border-purple-200';
   };
 
+  const getFaceRegistrationColor = (isRegistered) => {
+    return isRegistered
+      ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+      : 'text-red-600 bg-red-50 border-red-200';
+  };
+
 
   const getEmployeeAttendance = async () => {
     try {
@@ -251,6 +261,69 @@ export default function AttendanceHistory() {
   };
 
   const [attendance, setAttendance] = useState([]);
+
+  // Fetch employee face registration status
+  const checkFaceRegistration = async (employeeId) => {
+    try {
+      setLoadingFaceStatus(prev => ({ ...prev, [employeeId]: true }));
+      const res = await api.get(`/attendance/face/status?employeeId=${employeeId}`);
+      setFaceStatusMap(prev => ({
+        ...prev,
+        [employeeId]: res.data.isRegistered
+      }));
+      return res.data.isRegistered;
+    } catch (err) {
+      console.error('Error checking face status:', err);
+      setFaceStatusMap(prev => ({
+        ...prev,
+        [employeeId]: false
+      }));
+      return false;
+    } finally {
+      setLoadingFaceStatus(prev => ({ ...prev, [employeeId]: false }));
+    }
+  };
+
+  // Delete face registration for an employee
+  const handleDeleteFace = async (employeeId) => {
+    if (!window.confirm('Are you sure you want to delete this employee\'s face registration?')) {
+      return;
+    }
+
+    try {
+      setDeletingFaceId(employeeId);
+      const res = await api.delete(`/attendance/face/delete?employeeId=${employeeId}`);
+      
+      if (res.data.success) {
+        setFaceStatusMap(prev => ({
+          ...prev,
+          [employeeId]: false
+        }));
+        alert('Face registration deleted successfully');
+      }
+    } catch (err) {
+      console.error('Error deleting face:', err);
+      alert(err.response?.data?.message || 'Failed to delete face registration');
+    } finally {
+      setDeletingFaceId(null);
+    }
+  };
+
+  // Refresh face registration status
+  const handleRefreshFaceStatus = async (employeeId) => {
+    await checkFaceRegistration(employeeId);
+  };
+
+  // Load face status for all employees when attendance data is loaded
+  useEffect(() => {
+    if (attendance.length > 0) {
+      attendance.forEach(emp => {
+        if (!faceStatusMap.hasOwnProperty(emp.employee._id)) {
+          checkFaceRegistration(emp.employee._id);
+        }
+      });
+    }
+  }, [attendance]);
 
   useEffect(() => {
     const fetchAttendance = async () => {
@@ -408,6 +481,7 @@ export default function AttendanceHistory() {
                 <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg Times</th>
                 <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Hours</th>
                 <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Attendance</th>
+                <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Face Registration</th>
                 <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
               </tr>
             </thead>

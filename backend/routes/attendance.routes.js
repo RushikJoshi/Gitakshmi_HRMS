@@ -11,6 +11,12 @@ router.get('/my', auth.authenticate, attendCtrl.getMyAttendance);
 router.get('/today-summary', auth.authenticate, attendCtrl.getTodaySummary);
 router.post('/validateAttendance', auth.authenticate, attendCtrl.validateLocation);
 
+// --- Face Authentication Routes ---
+router.post('/face/register', auth.authenticate, attendCtrl.registerFace);
+router.post('/face/verify', auth.authenticate, attendCtrl.verifyFaceAttendance);
+router.get('/face/status', auth.authenticate, attendCtrl.getFaceStatus);
+router.delete('/face/delete', auth.authenticate, attendCtrl.deleteFace);
+
 // --- Manager Routes ---
 router.get('/team', auth.authenticate, attendCtrl.getTeamAttendance);
 
