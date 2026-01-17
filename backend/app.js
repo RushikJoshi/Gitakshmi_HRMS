@@ -90,6 +90,9 @@ const salaryStructureRoutes = require('./routes/salaryStructure.routes');
 const payrollRuleRoutes = require('./routes/payrollRule.routes');
 const salaryRevisionRoutes = require('./routes/salaryRevision.routes');
 
+// Company ID Configuration
+const companyIdConfigRoutes = require('./routes/companyIdConfig.routes');
+
 /* ===============================
    ROUTES (NO TENANT)
 ================================ */
@@ -99,6 +102,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/company', companyRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/company-id-config', companyIdConfigRoutes);
 
 /* ===============================
    TENANT MIDDLEWARE

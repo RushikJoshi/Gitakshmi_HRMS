@@ -160,6 +160,39 @@ const EmployeeSchema = new mongoose.Schema({
     type: Date
   },
 
+  // ========================================
+  // PROMOTION & CAREER PROGRESSION
+  // ========================================
+
+  // Current designation/title
+  designation: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Current grade/level
+  grade: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Last promotion date
+  lastPromotionDate: {
+    type: Date
+  },
+
+  // Last increment date
+  lastIncrementDate: {
+    type: Date
+  },
+
+  // Last salary revision date
+  lastRevisionDate: {
+    type: Date
+  },
+
   meta: { type: Object, default: {} },
 }, { timestamps: true });
 

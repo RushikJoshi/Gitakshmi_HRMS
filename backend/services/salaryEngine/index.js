@@ -113,7 +113,7 @@ class SalaryEngine {
     const context = { CTC: annualCTC };
     formulas['CTC'] = annualCTC.toString();
 
-    // 4. Resolve via FormulaEngine
+    // 4. Resolve via FormulaEngine (Phase 1)
     const engine = new FormulaEngine(formulas);
     let totalComputedEarnings = 0;
     let totalComputedBenefits = 0;

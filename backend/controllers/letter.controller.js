@@ -14,6 +14,7 @@ let docx2pdf;
 try {
     docx2pdf = require('docx2pdf');
     console.log('✅ docx2pdf module loaded successfully');
+    console.log('🚀 LETTER CONTROLLER VERSION: 3.0 (DATE FIX APPLIED)');
 } catch (error) {
     console.warn('⚠️ docx2pdf module not available, PDF conversion will be disabled:', error.message);
     docx2pdf = null;
@@ -71,6 +72,40 @@ function getApplicantModel(req) {
         return req.tenantDB.model("Applicant");
     } else {
         return mongoose.model("Applicant");
+    }
+}
+
+function formatCustomDate(date, format = 'Do MMM. YYYY') {
+    if (!date) return '';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
+
+    const day = d.getDate();
+    const monthIndex = d.getMonth();
+    const year = d.getFullYear();
+
+    // Helpers
+    const pad = (n) => n < 10 ? '0' + n : n;
+    const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthsLong = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    // Ordinal Suffix logic
+    let suffix = 'th';
+    if (day % 10 === 1 && day !== 11) suffix = 'st';
+    else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+    else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+    // Switch based on requested format
+    switch (format) {
+        case 'DD/MM/YYYY':
+            return `${pad(day)}/${pad(monthIndex + 1)}/${year}`;
+        case 'YYYY-MM-DD':
+            return `${year}-${pad(monthIndex + 1)}-${pad(day)}`;
+        case 'Do MMMM YYYY':
+            return `${day}${suffix} ${monthsLong[monthIndex]} ${year}`;
+        case 'Do MMM. YYYY':
+        default:
+            return `${day}${suffix} ${monthsShort[monthIndex]}. ${year}`;
     }
 }
 
@@ -1300,7 +1335,8 @@ exports.generateJoiningLetter = async (req, res) => {
 exports.generateOfferLetter = async (req, res) => {
     try {
         // Accept params from the Generate Modal
-        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName, salutation, issueDate } = req.body;
+        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName, salutation, issueDate, preview, name, dearName, dateFormat } = req.body;
+        console.log('🐞 [DEBUG INPUTS] Salutation:', salutation, '| IssueDate:', issueDate, '| preview:', preview, '| Name:', name, '| DearName:', dearName, '| DateFormat:', dateFormat);
         const Applicant = getApplicantModel(req);
 
         // Get tenant-specific models
@@ -1370,31 +1406,34 @@ exports.generateOfferLetter = async (req, res) => {
                 final: finalFatherName
             });
 
-            // Get issued date - Priority: Modal Input -> Today
-            // Format: DD/MM/YYYY (e.g., "31/12/2025")
-            let issuedDateStr;
-            if (issueDate) {
-                issuedDateStr = new Date(issueDate).toLocaleDateString('en-IN');
-            } else {
-                issuedDateStr = new Date().toLocaleDateString('en-IN');
-            }
+            // Extract placeholders for debugging
+            const docPlaceholders = await extractPlaceholders(normalizedFilePath);
+            console.log('🔍 [OFFER LETTER] Placeholders found in template:', docPlaceholders);
 
-            // Prepare Salutation and Name
-            const finalSalutation = safeString(salutation);
-            const candidateName = safeString(applicant.name);
-            const candidateNameWithSalutation = finalSalutation ? `${finalSalutation} ${candidateName}` : candidateName;
+            // Get issued date - From Modal or TODAY's date
+            // Format: Do MMM. YYYY (e.g., "16th Jan. 2026")
+            // Format: Based on user selection
+            const validIssueDate = issueDate ? new Date(issueDate) : new Date();
+            const issuedDate = formatCustomDate(validIssueDate, dateFormat);
+            console.log('📅 [OFFER LETTER] Issued Date set to:', issuedDate, 'Format:', dateFormat);
 
-            console.log('📅 [OFFER LETTER] Issued Date:', issuedDateStr);
+            const fullName = `${salutation ? salutation + ' ' : ''}${safeString(name || applicant.name)}`;
+            // Construct Dear Name: "Ms. Rima" if user entered "Rima"
+            const finalDearName = `${salutation ? salutation + ' ' : ''}${safeString(dearName || name || applicant.name)}`;
+
+            console.log('👤 [OFFER LETTER] Full Name constructed:', fullName);
+            console.log('👤 [OFFER LETTER] Dear Name constructed:', finalDearName);
 
             const offerData = {
-                employee_name: candidateNameWithSalutation, // UPDATED: Includes Salutation by default
-                candidate_name: candidateNameWithSalutation, // UPDATED: Includes Salutation by default
-                name: candidateNameWithSalutation, // Common alias
-                salutation: finalSalutation,
-                candidate_name_only: candidateName, // Raw name without salutation if needed
-                candidate_name_with_salutation: candidateNameWithSalutation,
+                employee_name: fullName,
+                candidate_name: fullName,
+                name: fullName,
+                Name: fullName,
+                NAME: fullName,
+                ApplicantName: fullName,
+                CandidateName: fullName,
 
-                // Father name
+                // Father name - support multiple placeholder variations
                 father_name: finalFatherName,
                 father_names: finalFatherName,
                 fatherName: finalFatherName,
@@ -1403,30 +1442,38 @@ exports.generateOfferLetter = async (req, res) => {
                 FATHER_NAMES: finalFatherName,
 
                 designation: safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
+                // Joining Date: HR Input (Modal) -> Applicant DB (Fallback)
+                // Joining Date: Force format even if DB has ISO string
+                joining_date: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
+                joiningDate: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
+                JOINING_DATE: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
 
-                // Joining Date
-                joining_date: safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
-
-                // Location
+                // Location: HR Input (Modal) -> Applicant DB (Fallback)
                 location: safeString(location || applicant.location || applicant.workLocation),
 
                 // Address: Priority -> Modal Input (address) -> Database (applicant.address)
                 address: safeString(address || applicant.address),
                 candidate_address: safeString(address || applicant.address),
-
-                // Ref No
+                // Ref No: HR Input (Modal) ONLY
                 offer_ref_no: safeString(refNo),
+                refNo: safeString(refNo),
 
-                // Issued Date - comprehensive aliases for all possible template variations
-                issued_date: issuedDateStr,
-                issuedDate: issuedDateStr,
-                ISSUED_DATE: issuedDateStr,
-                current_date: issuedDateStr,
-                Date: issuedDateStr,
-                DATE: issuedDateStr,
-                Date_odt: issuedDateStr, // LibreOffice/ODT format
-                date_odt: issuedDateStr,
-                DATE_ODT: issuedDateStr
+                // Issued Date - support multiple placeholder variations
+                issued_date: issuedDate,
+                issuedDate: issuedDate, // CamelCase alias
+                ISSUED_DATE: issuedDate, // Uppercase alias
+                Date: issuedDate,
+                DATE: issuedDate,
+                today: issuedDate,
+                Today: issuedDate,
+                current_date: issuedDate,
+                issue_date: issuedDate,
+                ISSUE_DATE: issuedDate,
+
+                // Specific "Dear X" placeholder
+                dear_name: finalDearName,
+                DearName: finalDearName,
+                dear_name_only: safeString(dearName || name || applicant.name) // Without Ms./Mr.
             };
 
             console.log('🔥 [OFFER LETTER] Word template data:', offerData);
@@ -1479,29 +1526,19 @@ exports.generateOfferLetter = async (req, res) => {
             const safeString = (val) => (val !== undefined && val !== null ? String(val) : '');
             const finalFatherName = safeString(fatherName || applicant.fatherName);
 
-            // Get issued date - Priority: Modal Input -> Today
-            let issuedDateStr;
-            if (issueDate) {
-                issuedDateStr = new Date(issueDate).toLocaleDateString('en-IN');
-            } else {
-                issuedDateStr = new Date().toLocaleDateString('en-IN');
-            }
+            // Get issued date - From Modal or TODAY
+            const validIssueDate = issueDate ? new Date(issueDate) : new Date();
+            const issuedDate = formatCustomDate(validIssueDate, dateFormat);
 
-            // Prepare Salutation
-            const finalSalutation = safeString(salutation);
-
-            const candidateName = safeString(applicant.name);
-            const candidateNameWithSalutation = finalSalutation ? `${finalSalutation} ${candidateName}` : candidateName;
+            const fullName = `${salutation ? salutation + ' ' : ''}${safeString(name || applicant.name)}`;
 
             const replacements = {
-                '{{employee_name}}': candidateNameWithSalutation,
-                '{{candidate_name}}': candidateNameWithSalutation,
-                '{{name}}': candidateNameWithSalutation,
-                '{{salutation}}': finalSalutation,
+                '{{employee_name}}': fullName,
+                '{{candidate_name}}': fullName,
                 '{{father_name}}': finalFatherName,
                 '{{father_names}}': finalFatherName,
                 '{{designation}}': safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
-                '{{joining_date}}': safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
+                '{{joining_date}}': safeString(joiningDate ? formatCustomDate(joiningDate, dateFormat) : (applicant.joiningDate ? formatCustomDate(applicant.joiningDate, dateFormat) : '')),
                 '{{location}}': safeString(location || applicant.location || applicant.workLocation),
                 '{{address}}': safeString(address || applicant.address),
                 '{{offer_ref_no}}': safeString(refNo),
@@ -1560,36 +1597,43 @@ exports.generateOfferLetter = async (req, res) => {
             }
         }
 
-        // Save generated letter record
-        const generated = new GeneratedLetter({
-            tenantId: req.user?.tenantId,
-            applicantId,
-            templateId,
-            templateType, // 'WORD' or 'BLANK'/'LETTER_PAD'
-            letterType: 'offer',
-            pdfPath: relativePath,
-            pdfUrl: downloadUrl,
-            status: 'generated',
-            generatedBy: req.user?.userId
-        });
-        await generated.save();
+        if (!preview) {
+            // Save generated letter record
+            const generated = new GeneratedLetter({
+                tenantId: req.user?.tenantId,
+                applicantId,
+                templateId,
+                templateType, // 'WORD' or 'BLANK'/'LETTER_PAD'
+                letterType: 'offer',
+                pdfPath: relativePath,
+                pdfUrl: downloadUrl,
+                status: 'generated',
+                generatedBy: req.user?.userId
+            });
+            await generated.save();
 
-        // Prepare update data for applicant (Save the inputs)
-        const storedFileName = pdfFileName || (relativePath ? path.basename(relativePath) : '');
-        const updateData = {
-            offerLetterPath: storedFileName,
-            offerRefCode: refNo,
-            status: 'Selected'
-        };
+            // Prepare update data for applicant (Save the inputs)
+            // Store just the filename, not the full path to avoid duplicate /offers/ in URL
+            const storedFileName = pdfFileName || (relativePath ? path.basename(relativePath) : '');
+            const updateData = {
+                offerLetterPath: storedFileName,
+                offerRefCode: refNo,
+                status: 'Selected'
+            };
 
-        if (joiningDate) updateData.joiningDate = new Date(joiningDate);
-        if (address) updateData.address = address;
-        if (department) updateData.department = department;
-        if (location) updateData.location = location;
-        if (fatherName) updateData.fatherName = fatherName; // Persist Father Name
+            if (joiningDate) updateData.joiningDate = new Date(joiningDate);
+            if (address) updateData.address = address;
+            if (department) updateData.department = department;
+            if (location) updateData.location = location;
+            if (fatherName) updateData.fatherName = fatherName; // Persist Father Name
+            if (salutation) updateData.salutation = salutation; // Persist Salutation
 
-        const { Applicant: ApplicantModel } = getModels(req);
-        await ApplicantModel.findByIdAndUpdate(applicantId, updateData);
+            const { Applicant: ApplicantModel } = getModels(req);
+            await ApplicantModel.findByIdAndUpdate(applicantId, updateData);
+            console.log('✅ [OFFER LETTER] Database Updated');
+        } else {
+            console.log('ℹ️ [OFFER LETTER] Preview Mode: Database NOT updated');
+        }
 
         res.json({
             success: true,
@@ -1879,21 +1923,21 @@ exports.previewJoiningLetter = async (req, res) => {
 
         // Build basicData object with applicant and company information
         const basicData = {
-            candidate_name: target.name || (target.firstName ? `${target.firstName} ${target.lastName || ''}` : ''),
-            candidateName: target.name || (target.firstName ? `${target.firstName} ${target.lastName || ''}` : ''),
-            employee_name: target.name || (target.firstName ? `${target.firstName} ${target.lastName || ''}` : ''),
-            father_name: target.fatherName || '',
-            fatherName: target.fatherName || '',
-            email: target.email || '',
-            mobile: target.mobile || target.contactNo || '',
-            address: target.address || (target.tempAddress ? `${target.tempAddress.line1}, ${target.tempAddress.city}` : ''),
-            designation: target.requirementId?.jobTitle || target.designation || target.role || '',
-            position: target.requirementId?.jobTitle || target.designation || target.role || '',
-            department: target.requirementId?.department || target.department || '',
-            joining_date: target.joiningDate ? new Date(target.joiningDate).toLocaleDateString('en-IN') : '',
-            joiningDate: target.joiningDate ? new Date(target.joiningDate).toLocaleDateString('en-IN') : '',
-            location: target.location || target.workLocation || (target.tempAddress?.city) || '',
-            work_location: target.location || target.workLocation || (target.tempAddress?.city) || '',
+            candidate_name: applicant.name || '',
+            candidateName: applicant.name || '',
+            employee_name: applicant.name || '',
+            father_name: applicant.fatherName || '',
+            fatherName: applicant.fatherName || '',
+            email: applicant.email || '',
+            mobile: applicant.mobile || '',
+            address: applicant.address || '',
+            designation: applicant.requirementId?.jobTitle || '',
+            position: applicant.requirementId?.jobTitle || '',
+            department: applicant.requirementId?.department || applicant.department || '',
+            joining_date: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
+            joiningDate: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
+            location: applicant.location || applicant.workLocation || '',
+            work_location: applicant.location || applicant.workLocation || '',
             current_date: new Date().toLocaleDateString('en-IN'),
             issued_date: new Date().toLocaleDateString('en-IN'),
             ref_no: `JL/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`
@@ -2218,5 +2262,32 @@ function processCandidateSalary(structure) {
 // Helper to round to 2 decimals
 const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
 
+
+
+        const fileName = `joining_letter_${applicantId}_${Date.now()}.docx`;
+        const outputPath = path.join(outputDir, fileName);
+        await fsPromises.writeFile(outputPath, outputBuffer);
+
+        const { Applicant: ApplicantModel } = getModels(req);
+        await ApplicantModel.findByIdAndUpdate(applicantId, {
+            joiningLetterPath: `/uploads/joining_letters/${fileName}`,
+            joiningLetterGeneratedAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'Joining letter generated successfully',
+            data: {
+                downloadUrl: `/uploads/joining_letters/${fileName}`,
+                fileName,
+                generatedAt: new Date()
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Generate Joining Letter Error:', error);
+        res.status(500).json({ success: false, message: 'Failed to generate joining letter', error: error.message });
+    }
+};
 
 
