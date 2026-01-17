@@ -14,6 +14,7 @@ let docx2pdf;
 try {
     docx2pdf = require('docx2pdf');
     console.log('✅ docx2pdf module loaded successfully');
+    console.log('🚀 LETTER CONTROLLER VERSION: 3.0 (DATE FIX APPLIED)');
 } catch (error) {
     console.warn('⚠️ docx2pdf module not available, PDF conversion will be disabled:', error.message);
     docx2pdf = null;
@@ -69,6 +70,40 @@ function getApplicantModel(req) {
         return req.tenantDB.model("Applicant");
     } else {
         return mongoose.model("Applicant");
+    }
+}
+
+function formatCustomDate(date, format = 'Do MMM. YYYY') {
+    if (!date) return '';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
+
+    const day = d.getDate();
+    const monthIndex = d.getMonth();
+    const year = d.getFullYear();
+
+    // Helpers
+    const pad = (n) => n < 10 ? '0' + n : n;
+    const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthsLong = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    // Ordinal Suffix logic
+    let suffix = 'th';
+    if (day % 10 === 1 && day !== 11) suffix = 'st';
+    else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+    else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+    // Switch based on requested format
+    switch (format) {
+        case 'DD/MM/YYYY':
+            return `${pad(day)}/${pad(monthIndex + 1)}/${year}`;
+        case 'YYYY-MM-DD':
+            return `${year}-${pad(monthIndex + 1)}-${pad(day)}`;
+        case 'Do MMMM YYYY':
+            return `${day}${suffix} ${monthsLong[monthIndex]} ${year}`;
+        case 'Do MMM. YYYY':
+        default:
+            return `${day}${suffix} ${monthsShort[monthIndex]}. ${year}`;
     }
 }
 
@@ -1241,7 +1276,8 @@ exports.generateJoiningLetter = async (req, res) => {
 exports.generateOfferLetter = async (req, res) => {
     try {
         // Accept params from the Generate Modal
-        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName } = req.body;
+        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName, salutation, issueDate, preview, name, dearName, dateFormat } = req.body;
+        console.log('🐞 [DEBUG INPUTS] Salutation:', salutation, '| IssueDate:', issueDate, '| preview:', preview, '| Name:', name, '| DearName:', dearName, '| DateFormat:', dateFormat);
         const Applicant = getApplicantModel(req);
 
         // Get tenant-specific models
@@ -1311,14 +1347,33 @@ exports.generateOfferLetter = async (req, res) => {
                 final: finalFatherName
             });
 
-            // Get issued date - TODAY's date when Generate button is clicked
-            // Format: DD/MM/YYYY (e.g., "31/12/2025")
-            const issuedDate = new Date().toLocaleDateString('en-IN');
-            console.log('📅 [OFFER LETTER] Issued Date set to TODAY:', issuedDate, '- This date will appear when you add {{issued_date}} to your Word template');
+            // Extract placeholders for debugging
+            const docPlaceholders = await extractPlaceholders(normalizedFilePath);
+            console.log('🔍 [OFFER LETTER] Placeholders found in template:', docPlaceholders);
+
+            // Get issued date - From Modal or TODAY's date
+            // Format: Do MMM. YYYY (e.g., "16th Jan. 2026")
+            // Format: Based on user selection
+            const validIssueDate = issueDate ? new Date(issueDate) : new Date();
+            const issuedDate = formatCustomDate(validIssueDate, dateFormat);
+            console.log('📅 [OFFER LETTER] Issued Date set to:', issuedDate, 'Format:', dateFormat);
+
+            const fullName = `${salutation ? salutation + ' ' : ''}${safeString(name || applicant.name)}`;
+            // Construct Dear Name: "Ms. Rima" if user entered "Rima"
+            const finalDearName = `${salutation ? salutation + ' ' : ''}${safeString(dearName || name || applicant.name)}`;
+
+            console.log('👤 [OFFER LETTER] Full Name constructed:', fullName);
+            console.log('👤 [OFFER LETTER] Dear Name constructed:', finalDearName);
 
             const offerData = {
-                employee_name: safeString(applicant.name),
-                candidate_name: safeString(applicant.name), // Added for compatibility
+                employee_name: fullName,
+                candidate_name: fullName,
+                name: fullName,
+                Name: fullName,
+                NAME: fullName,
+                ApplicantName: fullName,
+                CandidateName: fullName,
+
                 // Father name - support multiple placeholder variations
                 father_name: finalFatherName,
                 father_names: finalFatherName, // Plural alias
@@ -1328,20 +1383,36 @@ exports.generateOfferLetter = async (req, res) => {
                 FATHER_NAMES: finalFatherName, // Uppercase plural alias
                 designation: safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
                 // Joining Date: HR Input (Modal) -> Applicant DB (Fallback)
-                joining_date: safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
+                // Joining Date: Force format even if DB has ISO string
+                joining_date: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
+                joiningDate: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
+                JOINING_DATE: formatCustomDate(joiningDate || applicant.joiningDate, dateFormat),
+
                 // Location: HR Input (Modal) -> Applicant DB (Fallback)
                 location: safeString(location || applicant.location || applicant.workLocation),
                 // Address: HR Input (Modal) -> Applicant DB (Fallback)
                 address: safeString(address || applicant.address),
-                candidate_address: safeString(address || applicant.address), // Alias for some templates
+                candidate_address: safeString(address || applicant.address),
                 // Ref No: HR Input (Modal) ONLY
                 offer_ref_no: safeString(refNo),
+                refNo: safeString(refNo),
+
                 // Issued Date - support multiple placeholder variations
                 issued_date: issuedDate,
                 issuedDate: issuedDate, // CamelCase alias
                 ISSUED_DATE: issuedDate, // Uppercase alias
-                // Current date (legacy support)
-                current_date: issuedDate
+                Date: issuedDate,
+                DATE: issuedDate,
+                today: issuedDate,
+                Today: issuedDate,
+                current_date: issuedDate,
+                issue_date: issuedDate,
+                ISSUE_DATE: issuedDate,
+
+                // Specific "Dear X" placeholder
+                dear_name: finalDearName,
+                DearName: finalDearName,
+                dear_name_only: safeString(dearName || name || applicant.name) // Without Ms./Mr.
             };
 
             console.log('🔥 [OFFER LETTER] Word template data:', offerData);
@@ -1391,16 +1462,19 @@ exports.generateOfferLetter = async (req, res) => {
             // Prioritize Body Input -> Applicant DB
             const finalFatherName = safeString(fatherName || applicant.fatherName);
 
-            // Get issued date (current date when letter is generated)
-            const issuedDate = new Date().toLocaleDateString('en-IN');
+            // Get issued date - From Modal or TODAY
+            const validIssueDate = issueDate ? new Date(issueDate) : new Date();
+            const issuedDate = formatCustomDate(validIssueDate, dateFormat);
+
+            const fullName = `${salutation ? salutation + ' ' : ''}${safeString(name || applicant.name)}`;
 
             const replacements = {
-                '{{employee_name}}': safeString(applicant.name),
-                '{{candidate_name}}': safeString(applicant.name),
+                '{{employee_name}}': fullName,
+                '{{candidate_name}}': fullName,
                 '{{father_name}}': finalFatherName,
                 '{{father_names}}': finalFatherName, // Alias
                 '{{designation}}': safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
-                '{{joining_date}}': safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
+                '{{joining_date}}': safeString(joiningDate ? formatCustomDate(joiningDate, dateFormat) : (applicant.joiningDate ? formatCustomDate(applicant.joiningDate, dateFormat) : '')),
                 '{{location}}': safeString(location || applicant.location || applicant.workLocation),
                 '{{address}}': safeString(applicant.address || address),
                 '{{offer_ref_no}}': safeString(refNo),
@@ -1471,37 +1545,43 @@ exports.generateOfferLetter = async (req, res) => {
             }
         }
 
-        // Save generated letter record
-        const generated = new GeneratedLetter({
-            tenantId: req.user?.tenantId,
-            applicantId,
-            templateId,
-            templateType, // 'WORD' or 'BLANK'/'LETTER_PAD'
-            letterType: 'offer',
-            pdfPath: relativePath,
-            pdfUrl: downloadUrl,
-            status: 'generated',
-            generatedBy: req.user?.userId
-        });
-        await generated.save();
+        if (!preview) {
+            // Save generated letter record
+            const generated = new GeneratedLetter({
+                tenantId: req.user?.tenantId,
+                applicantId,
+                templateId,
+                templateType, // 'WORD' or 'BLANK'/'LETTER_PAD'
+                letterType: 'offer',
+                pdfPath: relativePath,
+                pdfUrl: downloadUrl,
+                status: 'generated',
+                generatedBy: req.user?.userId
+            });
+            await generated.save();
 
-        // Prepare update data for applicant (Save the inputs)
-        // Store just the filename, not the full path to avoid duplicate /offers/ in URL
-        const storedFileName = pdfFileName || (relativePath ? path.basename(relativePath) : '');
-        const updateData = {
-            offerLetterPath: storedFileName,
-            offerRefCode: refNo,
-            status: 'Selected'
-        };
+            // Prepare update data for applicant (Save the inputs)
+            // Store just the filename, not the full path to avoid duplicate /offers/ in URL
+            const storedFileName = pdfFileName || (relativePath ? path.basename(relativePath) : '');
+            const updateData = {
+                offerLetterPath: storedFileName,
+                offerRefCode: refNo,
+                status: 'Selected'
+            };
 
-        if (joiningDate) updateData.joiningDate = new Date(joiningDate);
-        if (address) updateData.address = address;
-        if (department) updateData.department = department;
-        if (location) updateData.location = location;
-        if (fatherName) updateData.fatherName = fatherName; // Persist Father Name
+            if (joiningDate) updateData.joiningDate = new Date(joiningDate);
+            if (address) updateData.address = address;
+            if (department) updateData.department = department;
+            if (location) updateData.location = location;
+            if (fatherName) updateData.fatherName = fatherName; // Persist Father Name
+            if (salutation) updateData.salutation = salutation; // Persist Salutation
 
-        const { Applicant: ApplicantModel } = getModels(req);
-        await ApplicantModel.findByIdAndUpdate(applicantId, updateData);
+            const { Applicant: ApplicantModel } = getModels(req);
+            await ApplicantModel.findByIdAndUpdate(applicantId, updateData);
+            console.log('✅ [OFFER LETTER] Database Updated');
+        } else {
+            console.log('ℹ️ [OFFER LETTER] Preview Mode: Database NOT updated');
+        }
 
         res.json({
             success: true,

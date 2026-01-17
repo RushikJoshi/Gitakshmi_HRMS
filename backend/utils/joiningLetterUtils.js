@@ -8,20 +8,45 @@
  * @param {Object} customData - Any overrides
  * @param {Object} snapshot - Immutable EmployeeSalarySnapshot document
  */
+/**
+ * Helper for custom date format: 16th Jan'25
+ */
+function formatCustomDate(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+
+  const day = d.getDate();
+  const month = d.toLocaleString('en-IN', { month: 'short' });
+  const year = d.getFullYear();
+
+  let suffix = 'th';
+  if (day % 10 === 1 && day !== 11) suffix = 'st';
+  else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+  else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+  return `${day}${suffix} ${month}. ${year}`;
+}
+
+/**
+ * Map Offer Letter data to Joining Letter variables with safe fallbacks
+ * 
+ * @param {Object} applicant - Applicant document
+ * @param {Object} customData - Any overrides
+ * @param {Object} snapshot - Immutable EmployeeSalarySnapshot document
+ */
 function mapOfferToJoiningData(applicant, customData = {}, snapshot = {}) {
-  const today = new Date().toLocaleDateString('en-IN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  const today = formatCustomDate(new Date());
+
+  const fullName = `${applicant?.salutation ? applicant.salutation + ' ' : ''}${applicant?.name || ''}`;
 
   // Extract offer data
   const offerData = {
     refNo: applicant?.offerRefNo || `OFFER/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}`,
-    offerDate: applicant?.offerDate ? new Date(applicant.offerDate).toLocaleDateString('en-IN') : today,
+    offerDate: applicant?.offerDate ? formatCustomDate(applicant.offerDate) : today,
     location: applicant?.location || applicant?.workLocation || '',
-    joiningDate: customData?.joining_date || (applicant?.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : ''),
-    name: applicant?.name || '',
+    joiningDate: customData?.joining_date || (applicant?.joiningDate ? formatCustomDate(applicant.joiningDate) : ''),
+    name: fullName,
     designation: applicant?.currentDesignation || applicant?.requirementId?.jobTitle || '',
     address: applicant?.workLocation || applicant?.address || '',
     department: applicant?.department || applicant?.requirementId?.department || '',

@@ -6,6 +6,7 @@ const ApplicantSchema = new mongoose.Schema({
   candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate' }, // Link to registered candidate
 
   // Personal Details
+  salutation: { type: String, trim: true }, // e.g., Mr., Ms.
   name: { type: String, trim: true, required: true },
   fatherName: { type: String, trim: true },
   email: { type: String, trim: true, required: true, lowercase: true },

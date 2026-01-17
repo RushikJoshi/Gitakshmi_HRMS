@@ -347,7 +347,13 @@ export default function Applicants() {
         templateContent: '',
         isWordTemplate: false,
         refNo: '',
-        fatherName: ''
+        fatherName: '',
+        salutation: '',
+        address: '',
+        issueDate: dayjs().format('YYYY-MM-DD'), // Default to today
+        name: '',
+        dearName: '',
+        dateFormat: 'Do MMM. YYYY' // Default format
     });
     const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
 
@@ -820,7 +826,13 @@ export default function Applicants() {
             probationPeriod: '3 months',
             templateContent: '',
             isWordTemplate: false,
-            refNo: refNo
+            refNo: refNo,
+            salutation: applicant.salutation || '',
+            address: applicant.address || '',
+            issueDate: dayjs().format('YYYY-MM-DD'),
+            name: applicant.name,
+            dearName: applicant.name, // Default to full name
+            dateFormat: 'Do MMM. YYYY'
         });
         setPreviewPdfUrl(null);
         setShowModal(true);
@@ -859,7 +871,15 @@ export default function Applicants() {
                     templateId: offerData.templateId,
                     joiningDate: offerData.joiningDate,
                     location: offerData.location,
-                    refNo: offerData.refNo // Pass the user-edited Ref No
+                    address: offerData.address,
+                    refNo: offerData.refNo, // Pass the user-edited Ref No
+                    salutation: offerData.salutation,
+                    issueDate: offerData.issueDate,
+                    issueDate: offerData.issueDate,
+                    name: offerData.name,
+                    dearName: offerData.dearName,
+                    dateFormat: offerData.dateFormat,
+                    preview: true // Tell backend this is just a preview
                 };
 
                 const res = await api.post('/letters/generate-offer', payload, { timeout: 30000 });
@@ -893,13 +913,13 @@ export default function Applicants() {
         if (!selectedApplicant) return;
 
         // If simple download of already generated preview
-        if (offerData.isWordTemplate && previewPdfUrl) {
-            window.open(previewPdfUrl, '_blank');
-            setShowModal(false);
-            setShowPreview(false);
-            loadApplicants();
-            return;
-        }
+        // if (offerData.isWordTemplate && previewPdfUrl) {
+        //     window.open(previewPdfUrl, '_blank');
+        //     setShowModal(false);
+        //     setShowPreview(false);
+        //     loadApplicants();
+        //     return;
+        // }
 
         setGenerating(true);
         try {
@@ -909,7 +929,13 @@ export default function Applicants() {
                 templateId: offerData.templateId,
                 joiningDate: offerData.joiningDate,
                 location: offerData.location,
+                address: offerData.address,
                 refNo: offerData.refNo, // Pass user-edited Ref No
+                salutation: offerData.salutation,
+                issueDate: offerData.issueDate,
+                name: offerData.name,
+                dearName: offerData.dearName,
+                dateFormat: offerData.dateFormat,
                 // Pass other fields if needed for specific templates
             };
 
@@ -1474,6 +1500,7 @@ export default function Applicants() {
                                                                                     <>
                                                                                         <button onClick={() => viewOfferLetter(app.offerLetterPath)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="View Offer"><Eye size={16} /></button>
                                                                                         <button onClick={() => downloadOffer(app.offerLetterPath)} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition" title="Download Offer"><Download size={16} /></button>
+                                                                                        <button onClick={() => openOfferModal(app)} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="Edit Offer"><Edit2 size={16} /></button>
                                                                                     </>
                                                                                 ) : (
                                                                                     <button onClick={() => openOfferModal(app)} className="text-xs font-medium text-blue-600 hover:underline">Generate Offer</button>
@@ -1573,25 +1600,75 @@ export default function Applicants() {
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                         <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
                             <h2 className="text-xl font-bold text-gray-900 mb-4">Generate Offer Letter</h2>
-                            <div className="mb-4 text-sm text-gray-600">
-                                <p><strong>Candidate:</strong> {selectedApplicant.name}</p>
-                                <p><strong>Role:</strong> {selectedApplicant.requirementId?.jobTitle}</p>
-                            </div>
 
                             <form onSubmit={(e) => { e.preventDefault(); handlePreview(); }} className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Offer Template</label>
+                                    <label className="block text-sm font-medium text-gray-700">Candidate Name</label>
+                                    <input
+                                        type="text"
+                                        name="name"
+                                        value={offerData.name}
+                                        onChange={handleOfferChange}
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Role: {selectedApplicant.requirementId?.jobTitle}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Name (For 'Dear ...' section)</label>
+                                    <input
+                                        type="text"
+                                        name="dearName"
+                                        value={offerData.dearName}
+                                        onChange={handleOfferChange}
+                                        placeholder="e.g. First Name only"
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Date Format</label>
                                     <select
-                                        name="templateId"
-                                        value={offerData.templateId}
+                                        name="dateFormat"
+                                        value={offerData.dateFormat}
                                         onChange={handleOfferChange}
                                         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                                     >
-                                        <option value="">-- Select Template --</option>
-                                        {templates.map(t => (
-                                            <option key={t._id} value={t._id}>{t.name}</option>
-                                        ))}
+                                        <option value="Do MMM. YYYY">17th Jan. 2026 (Default)</option>
+                                        <option value="DD/MM/YYYY">17/01/2026</option>
+                                        <option value="Do MMMM YYYY">17th January 2026</option>
+                                        <option value="YYYY-MM-DD">2026-01-17</option>
                                     </select>
+                                </div>
+
+                                <div className="grid grid-cols-4 gap-4">
+                                    <div className="col-span-1">
+                                        <label className="block text-sm font-medium text-gray-700">Title</label>
+                                        <select
+                                            name="salutation"
+                                            value={offerData.salutation}
+                                            onChange={handleOfferChange}
+                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                        >
+                                            <option value="">--</option>
+                                            <option value="Mr.">Mr.</option>
+                                            <option value="Ms.">Ms.</option>
+                                            <option value="Mrs.">Mrs.</option>
+                                            <option value="Dr.">Dr.</option>
+                                        </select>
+                                    </div>
+                                    <div className="col-span-3">
+                                        <label className="block text-sm font-medium text-gray-700">Offer Template</label>
+                                        <select
+                                            name="templateId"
+                                            value={offerData.templateId}
+                                            onChange={handleOfferChange}
+                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                        >
+                                            <option value="">-- Select Template --</option>
+                                            {templates.map(t => (
+                                                <option key={t._id} value={t._id}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700">Reference Number</label>
@@ -1605,17 +1682,32 @@ export default function Applicants() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Joining Date *</label>
-                                    <DatePicker
-                                        disabledDate={(current) => current && current < dayjs().startOf('day')}
-                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 h-[42px]"
-                                        format="DD-MM-YYYY"
-                                        placeholder="DD-MM-YYYY"
-                                        value={offerData.joiningDate ? dayjs(offerData.joiningDate) : null}
-                                        onChange={(date) => setOfferData(prev => ({ ...prev, joiningDate: date ? date.format('YYYY-MM-DD') : '' }))}
                                     />
+                                    <div className="flex gap-4">
+                                        <div className="w-1/2">
+                                            <label className="block text-sm font-medium text-gray-700">Joining Date *</label>
+                                            <DatePicker
+                                                disabledDate={(current) => current && current < dayjs().startOf('day')}
+                                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 h-[42px]"
+                                                format="DD-MM-YYYY"
+                                                placeholder="DD-MM-YYYY"
+                                                value={offerData.joiningDate ? dayjs(offerData.joiningDate) : null}
+                                                onChange={(date) => setOfferData(prev => ({ ...prev, joiningDate: date ? date.format('YYYY-MM-DD') : '' }))}
+                                            />
+                                        </div>
+                                        <div className="w-1/2">
+                                            <label className="block text-sm font-medium text-gray-700">Letter Issue Date</label>
+                                            <DatePicker
+                                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 h-[42px]"
+                                                format="DD-MM-YYYY"
+                                                placeholder="DD-MM-YYYY"
+                                                value={offerData.issueDate ? dayjs(offerData.issueDate) : null}
+                                                onChange={(date) => setOfferData(prev => ({ ...prev, issueDate: date ? date.format('YYYY-MM-DD') : '' }))}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
+                                <div className="hidden">
                                     <label className="block text-sm font-medium text-gray-700">Work Location</label>
                                     <input
                                         type="text"
@@ -1624,6 +1716,17 @@ export default function Applicants() {
                                         onChange={handleOfferChange}
                                         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                                         placeholder="e.g. New York, Remote"
+                                    />
+                                </div>
+                                <div className="col-span-full">
+                                    <label className="block text-sm font-medium text-gray-700">Candidate Address</label>
+                                    <textarea
+                                        name="address"
+                                        value={offerData.address}
+                                        onChange={handleOfferChange}
+                                        rows="3"
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                        placeholder="Full address with pin code..."
                                     />
                                 </div>
 
