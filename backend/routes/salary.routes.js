@@ -12,5 +12,6 @@ router.post('/assign', salaryCtrl.assign);
 router.post('/confirm', salaryCtrl.confirm);
 router.post('/preview', salaryCtrl.preview);
 router.get('/preview', salaryCtrl.preview);
+router.get('/snapshot/:id', salaryCtrl.getSnapshot);
 
 module.exports = router;
