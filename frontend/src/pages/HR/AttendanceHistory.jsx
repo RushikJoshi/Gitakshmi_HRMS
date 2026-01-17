@@ -539,6 +539,24 @@ export default function AttendanceHistory() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
+                    {loadingFaceStatus[employee.employee.employeeId] ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin text-blue-600" />
+                        <span className="text-xs font-bold text-slate-500">Checking...</span>
+                      </div>
+                    ) : faceStatusMap[employee.employee.employeeId] ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl w-fit">
+                        <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Registered</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl w-fit">
+                        <XCircle size={14} className="text-red-600 dark:text-red-400" />
+                        <span className="text-xs font-bold text-red-700 dark:text-red-300">Not Registered</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <button
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-600 rounded-xl transition"
@@ -552,6 +570,29 @@ export default function AttendanceHistory() {
                       >
                         <FileText size={16} />
                       </button>
+                      {faceStatusMap[employee.employee.employeeId] && (
+                        <button
+                          onClick={() => handleDeleteFace(employee.employee.employeeId)}
+                          disabled={deletingFaceId === employee.employee.employeeId}
+                          className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-600 disabled:opacity-50 rounded-xl transition"
+                          title="Delete Face Registration"
+                        >
+                          {deletingFaceId === employee.employee.employeeId ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={16} />
+                          )}
+                        </button>
+                      )}
+                      {faceStatusMap[employee.employee.employeeId] && (
+                        <button
+                          onClick={() => handleRefreshFaceStatus(employee.employee.employeeId)}
+                          className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-600 rounded-xl transition"
+                          title="Refresh Face Status"
+                        >
+                          <RefreshCw size={16} />
+                        </button>
+                      )}
                       <button
                         className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 group-hover:text-slate-600 transition"
                         title="More Options"
