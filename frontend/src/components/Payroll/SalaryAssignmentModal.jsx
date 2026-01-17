@@ -45,23 +45,57 @@ export default function SalaryAssignmentModal({ employee, onClose, onSuccess }) 
     async function handleSubmit(e) {
         e.preventDefault();
         if (!selectedTemplate || !effectiveFrom) {
-            setError("Please fill all fields");
+            setError("Please select a template and effective date.");
             return;
         }
 
         setSubmitting(true);
         setError('');
         try {
-            await api.post('/payroll/assign-template', {
+            // Find the template to get the CTC
+            const template = templates.find(t => t._id === selectedTemplate);
+            const ctcAnnual = template?.annualCTC || template?.ctc || 0;
+
+            if (!ctcAnnual) {
+                setError("The selected template is missing a valid annual CTC. Please update the template first.");
+                setSubmitting(false);
+                return;
+            }
+
+            // Call the modern salary assignment endpoint
+            await api.post('/salary/assign', {
                 employeeId: employee._id,
-                salaryTemplateId: selectedTemplate,
-                effectiveFrom
+                templateId: selectedTemplate,
+                ctcAnnual: ctcAnnual,
+                effectiveDate: effectiveFrom
+            });
+
+            if (onSuccess) onSuccess("Salary structure assigned as draft. Please confirm and lock to finalize.");
+            onClose();
+        } catch (err) {
+            console.error(err);
+            setError(err.response?.data?.message || "Failed to assign salary structure. Please ensure the template is valid.");
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleConfirm(assignmentId) {
+        if (!confirm("Confirming salary will lock this structure and create an immutable snapshot. You won't be able to edit this specific assignment once locked. Proceed?")) return;
+
+        setSubmitting(true);
+        setError('');
+        try {
+            await api.post('/salary/confirm', {
+                employeeId: employee._id,
+                assignmentId: assignmentId,
+                reason: 'JOINING'
             });
             if (onSuccess) onSuccess();
             onClose();
         } catch (err) {
             console.error(err);
-            setError(err.response?.data?.message || "Failed to assign template");
+            setError(err.response?.data?.message || "Failed to confirm salary");
         } finally {
             setSubmitting(false);
         }
@@ -81,8 +115,17 @@ export default function SalaryAssignmentModal({ employee, onClose, onSuccess }) 
 
                 <div className="p-6 overflow-y-auto">
                     <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-100">
-                        <p className="text-sm text-blue-800"><span className="font-semibold">Employee:</span> {employee.firstName} {employee.lastName} ({employee.employeeId})</p>
-                        <p className="text-sm text-blue-800"><span className="font-semibold">Department:</span> {employee.department}</p>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="text-sm text-blue-800"><span className="font-semibold">Employee:</span> {employee.firstName} {employee.lastName} ({employee.employeeId})</p>
+                                <p className="text-sm text-blue-800"><span className="font-semibold">Department:</span> {employee.department}</p>
+                            </div>
+                            <div className="text-right">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${employee.salaryLocked ? 'bg-green-100 text-green-800' : employee.salaryAssigned ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'}`}>
+                                    {employee.salaryLocked ? 'Locked' : employee.salaryAssigned ? 'Pending Confirmation' : 'No Salary Assigned'}
+                                </span>
+                            </div>
+                        </div>
                     </div>
 
                     {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md border border-red-200 text-sm">{error}</div>}
@@ -93,8 +136,9 @@ export default function SalaryAssignmentModal({ employee, onClose, onSuccess }) 
                             <select
                                 value={selectedTemplate}
                                 onChange={e => setSelectedTemplate(e.target.value)}
-                                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border disabled:bg-gray-50"
                                 required
+                                disabled={employee.salaryLocked}
                             >
                                 <option value="">Select a Template</option>
                                 {templates.map(t => (
@@ -111,23 +155,26 @@ export default function SalaryAssignmentModal({ employee, onClose, onSuccess }) 
                                 type="date"
                                 value={effectiveFrom}
                                 onChange={e => setEffectiveFrom(e.target.value)}
-                                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border disabled:bg-gray-50"
                                 required
+                                disabled={employee.salaryLocked}
                             />
                             <p className="text-xs text-gray-500 mt-1">Assignments take effect from this date onwards.</p>
                         </div>
 
-                        <div className="flex justify-end gap-3 pt-4">
-                            <button type="button" onClick={onClose} className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                            <button
-                                type="submit"
-                                disabled={submitting}
-                                className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {submitting && <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
-                                Assign Template
-                            </button>
-                        </div>
+                        {!employee.salaryLocked && (
+                            <div className="flex justify-end gap-3 pt-4">
+                                <button type="button" onClick={onClose} className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                                <button
+                                    type="submit"
+                                    disabled={submitting}
+                                    className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {submitting && <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                                    {employee.salaryAssigned ? 'Update Assignment' : 'Assign Template'}
+                                </button>
+                            </div>
+                        )}
                     </form>
 
                     <div className="mt-8 border-t pt-6">
@@ -139,18 +186,34 @@ export default function SalaryAssignmentModal({ employee, onClose, onSuccess }) 
                                         <tr>
                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Template</th>
                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Effective Date</th>
-                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Assigned By</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase text-center">Status</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase text-right">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {history.length === 0 ? (
-                                            <tr><td colSpan="3" className="px-4 py-3 text-sm text-gray-500 text-center">No history found</td></tr>
+                                            <tr><td colSpan="4" className="px-4 py-3 text-sm text-gray-500 text-center">No history found</td></tr>
                                         ) : (
                                             history.map(h => (
                                                 <tr key={h._id}>
                                                     <td className="px-4 py-2 text-sm text-gray-900">{h.salaryTemplateId?.templateName || 'Unknown'}</td>
                                                     <td className="px-4 py-2 text-sm text-gray-600">{formatDateDDMMYYYY(h.effectiveFrom)}</td>
-                                                    <td className="px-4 py-2 text-sm text-gray-600">{h.assignedBy?.firstName || '-'}</td>
+                                                    <td className="px-4 py-2 text-sm text-center">
+                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${h.isConfirmed ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                            {h.isConfirmed ? 'Locked' : 'Draft'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-sm text-right">
+                                                        {!h.isConfirmed && (
+                                                            <button
+                                                                onClick={() => handleConfirm(h._id)}
+                                                                disabled={submitting}
+                                                                className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50 transition"
+                                                            >
+                                                                Confirm & Lock
+                                                            </button>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))
                                         )}

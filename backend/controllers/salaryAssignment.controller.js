@@ -43,16 +43,14 @@ exports.assignTemplate = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid effective date" });
         }
 
-        // Create assignment
+        // Create assignment (Compatible with new schema)
         const assignment = new SalaryAssignment({
             tenantId,
             employeeId,
             salaryTemplateId,
             effectiveFrom: effectiveDate,
-            assignmentSnapshot: {
-                annualCTC: template.annualCTC,
-                monthlyCTC: template.monthlyCTC
-            },
+            ctcAnnual: template.annualCTC || 0,
+            monthlyCTC: template.monthlyCTC || Math.round(((template.annualCTC || 0) / 12) * 100) / 100,
             assignedBy: req.user.id || req.user._id
         });
 

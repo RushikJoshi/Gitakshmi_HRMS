@@ -93,6 +93,7 @@ const EmployeeSalarySnapshotSchema = new mongoose.Schema({
     calculationBase: String,
     amountValue: Number,
     monthlyAmount: { type: Number, required: true },
+    annualAmount: { type: Number, required: true },
     resolved: { type: Boolean, default: true }
   }],
 
@@ -151,6 +152,12 @@ const EmployeeSalarySnapshotSchema = new mongoose.Schema({
   revisionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SalaryRevision'
+  },
+
+  previousSnapshotId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeSalarySnapshot',
+    default: null
   },
 
   // Audit trail

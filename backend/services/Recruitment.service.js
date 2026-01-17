@@ -181,6 +181,7 @@ class RecruitmentService {
         return await Applicant.find({ tenant: tenantId })
             .populate('requirementId', 'jobTitle jobOpeningId')
             .populate('candidateId', 'name email mobile')
+            .populate('salarySnapshotId')
             .sort({ createdAt: -1 });
     }
 

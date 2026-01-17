@@ -56,6 +56,8 @@ function getModels(req) {
             LetterTemplate: db.model("LetterTemplate"),
             GeneratedLetter: db.model("GeneratedLetter"),
             Applicant: db.model("Applicant"),
+            Employee: db.model("Employee"),
+            EmployeeSalarySnapshot: db.model("EmployeeSalarySnapshot"),
             // SalaryStructure is GLOBAL, not tenant-specific
         };
     } catch (err) {
@@ -1001,34 +1003,52 @@ exports.generateJoiningLetter = async (req, res) => {
     try {
         console.log('🔥 [JOINING LETTER] Request received:', {
             bodyKeys: Object.keys(req.body),
-            user: req.user?.userId,
+            userId: req.user?.id,
             tenantId: req.user?.tenantId
         });
 
-        const { applicantId, templateId } = req.body; // Only accept applicantId and templateId - no customData
+        const { applicantId, employeeId, templateId } = req.body;
         const Applicant = getApplicantModel(req);
+        const { Employee, LetterTemplate, GeneratedLetter } = getModels(req);
 
-        // Get tenant-specific models
-        const { LetterTemplate, GeneratedLetter, SalaryStructure } = getModels(req);
+        console.log('🔥 [JOINING LETTER] Request received:', { applicantId, employeeId, templateId });
 
-        console.log('🔥 [JOINING LETTER] Extracted data:', { applicantId, templateId });
-
-        const applicant = await Applicant.findById(applicantId).populate('requirementId');
-        const template = await LetterTemplate.findOne({ _id: templateId, tenantId: req.user.tenantId });
-
-        if (!applicant || !template) {
-            console.error('🔥 [JOINING LETTER] Missing applicant or template');
-            return res.status(404).json({ message: "Applicant or Template not found" });
+        // Validate input
+        if (!templateId || (!applicantId && !employeeId)) {
+            return res.status(400).json({ message: "templateId and (applicantId or employeeId) are required" });
         }
 
-        // STRICT REQUIREMENT: Fail if Offer Letter does not exist
-        if (!applicant.offerLetterPath) {
-            console.error('🔥 [JOINING LETTER] BLOCKED: Applicant has no Offer Letter generated (offerLetterPath missing).');
+        // Fetch target
+        let target;
+        let targetType;
+        if (employeeId) {
+            target = await Employee.findById(employeeId);
+            targetType = 'employee';
+        } else {
+            target = await Applicant.findById(applicantId).populate('requirementId');
+            targetType = 'applicant';
+        }
+
+        const template = await LetterTemplate.findOne({ _id: templateId, tenantId: req.user.tenantId });
+
+        if (!target || !template) {
+            console.error('🔥 [JOINING LETTER] Missing target or template');
+            return res.status(404).json({ message: "Employee/Applicant or Template not found" });
+        }
+
+        // 1. MUST BE LOCKED
+        if (!target.salaryLocked) {
+            console.error('🔥 [JOINING LETTER] BLOCKED: Salary not locked for', targetType, target._id);
+            return res.status(400).json({ message: "Salary must be confirmed and locked before generating joining letter." });
+        }
+
+        // STRICT REQUIREMENT for applicants: Fail if Offer Letter does not exist
+        if (targetType === 'applicant' && !target.offerLetterPath) {
+            console.error('🔥 [JOINING LETTER] BLOCKED: Applicant has no Offer Letter generated.');
             return res.status(400).json({ message: "Offer Letter must be generated before Joining Letter." });
         }
 
         if (template.type !== 'joining') {
-            console.error('🔥 [JOINING LETTER] Invalid template type:', template.type);
             return res.status(400).json({ message: "Invalid template type for joining letter" });
         }
 
@@ -1077,10 +1097,35 @@ exports.generateJoiningLetter = async (req, res) => {
 
         // 3. Prepare Data - FETCH FROM EmployeeSalarySnapshot (Single Source of Truth)
         const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
-        const snapshot = await EmployeeSalarySnapshot.findOne({ applicant: applicantId }).sort({ createdAt: -1 }).lean();
+
+        // NEW: Check for embedded snapshot first (Applicant 2.0 flow)
+        let snapshot = null;
+        if (targetType === 'applicant' && target.salarySnapshot) {
+            console.log('[JOINING LETTER] Using embedded salarySnapshot from Applicant');
+            snapshot = target.salarySnapshot.breakdown || target.salarySnapshot;
+        }
 
         if (!snapshot) {
-            console.error(`[JOINING LETTER] EmployeeSalarySnapshot not found for applicant: ${applicantId}.`);
+            const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
+            snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+        }
+
+        // Robust Fallback: Check target's specific snapshot references
+        if (!snapshot && target) {
+            console.log(`[JOINING LETTER] Snapshot not found by query, trying target references for ${targetType}`);
+            const snapId = target.currentSalarySnapshotId || target.salarySnapshotId;
+            if (snapId) {
+                snapshot = await EmployeeSalarySnapshot.findById(snapId).lean();
+            }
+            // If still not found and is employee, check their snapshots array
+            if (!snapshot && targetType === 'employee' && target.salarySnapshots?.length > 0) {
+                const lastSnapId = target.salarySnapshots[target.salarySnapshots.length - 1];
+                snapshot = await EmployeeSalarySnapshot.findById(lastSnapId).lean();
+            }
+        }
+
+        if (!snapshot) {
+            console.error(`[JOINING LETTER] EmployeeSalarySnapshot not found for ${targetType}: ${employeeId || applicantId}. Checked query and target refs.`);
             return res.status(400).json({ message: "Salary snapshot not found. Please complete Salary Assignment first." });
         }
 
@@ -1089,12 +1134,13 @@ exports.generateJoiningLetter = async (req, res) => {
         const annual = (monthly) => monthly * 12;
 
         const earnings = snapshot.earnings || [];
-        const deductions = snapshot.deductions || [];
+        const employeeDeductions = snapshot.employeeDeductions || snapshot.deductions || [];
+        const employerDeductions = snapshot.employerDeductions || [];
         const benefits = snapshot.benefits || [];
 
-        const totalEarningsAnnual = earnings.reduce((sum, e) => sum + e.annualAmount, 0);
-        const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + b.annualAmount, 0);
-        const totalDeductionsAnnual = deductions.reduce((sum, d) => sum + d.annualAmount, 0);
+        const totalEarningsAnnual = earnings.reduce((sum, e) => sum + (e.annualAmount || (e.monthlyAmount * 12) || 0), 0);
+        const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + (b.annualAmount || (b.monthlyAmount * 12) || 0), 0);
+        const totalDeductionsAnnual = employeeDeductions.reduce((sum, d) => sum + (d.annualAmount || (d.monthlyAmount * 12) || 0), 0);
 
         const grossAAnnual = totalEarningsAnnual;
         const netAnnual = totalEarningsAnnual - totalDeductionsAnnual;
@@ -1109,13 +1155,13 @@ exports.generateJoiningLetter = async (req, res) => {
 
         const flatData = {};
         earnings.forEach(e => { flatData[e.code] = cur(e.monthlyAmount); flatData[`${e.code}_ANNUAL`] = cur(e.annualAmount); });
-        deductions.forEach(d => { flatData[d.code] = cur(d.monthlyAmount); flatData[`${d.code}_ANNUAL`] = cur(d.annualAmount); });
+        employeeDeductions.forEach(d => { flatData[d.code] = cur(d.monthlyAmount); flatData[`${d.code}_ANNUAL`] = cur(d.annualAmount); });
         benefits.forEach(b => { flatData[b.code] = cur(b.monthlyAmount); flatData[`${b.code}_ANNUAL`] = cur(b.annualAmount); });
 
         req.calculatedSalaryData = {
-            earnings: earnings.map(e => ({ name: e.name, monthly: cur(e.monthlyAmount), yearly: cur(e.annualAmount) })),
-            deductions: deductions.map(d => ({ name: d.name, monthly: cur(d.monthlyAmount), yearly: cur(d.annualAmount) })),
-            benefits: benefits.map(b => ({ name: b.name, monthly: cur(b.monthlyAmount), yearly: cur(b.annualAmount) })),
+            earnings: earnings.map(e => ({ name: e.name, monthly: cur(e.monthlyAmount), yearly: cur(e.annualAmount || (e.monthlyAmount * 12)) })),
+            deductions: employeeDeductions.map(d => ({ name: d.name, monthly: cur(d.monthlyAmount), yearly: cur(d.annualAmount || (d.monthlyAmount * 12)) })),
+            benefits: benefits.map(b => ({ name: b.name, monthly: cur(b.monthlyAmount), yearly: cur(b.annualAmount || (b.monthlyAmount * 12)) })),
             totals,
             flatData
         };
@@ -1153,7 +1199,13 @@ exports.generateJoiningLetter = async (req, res) => {
         console.log("salaryComponents (FINAL STRICT) =>", salaryComponents);
 
         // A. Basic Placeholders
-        const basicData = joiningLetterUtils.mapOfferToJoiningData(applicant, {}, snapshot);
+        // Normalize target for mapOfferToJoiningData
+        const normalizedTarget = {
+            ...(target.toObject ? target.toObject() : target),
+            name: target.name || (target.firstName ? `${target.firstName} ${target.lastName || ''}`.trim() : ''),
+            address: target.address || (target.tempAddress ? `${target.tempAddress.line1}, ${target.tempAddress.city}` : '')
+        };
+        const basicData = joiningLetterUtils.mapOfferToJoiningData(normalizedTarget, {}, snapshot);
 
         // Build complete salaryStructure object for template
         const salaryStructure = {
@@ -1205,7 +1257,7 @@ exports.generateJoiningLetter = async (req, res) => {
 
         // 5. Generate Output (DOCX)
         const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
-        const fileName = `Joining_Letter_${applicantId}_${Date.now()}`;
+        const fileName = `Joining_Letter_${employeeId || applicantId || 'id'}_${Date.now()}`;
         const outputDir = path.join(__dirname, '../uploads/offers');
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
@@ -1238,22 +1290,23 @@ exports.generateJoiningLetter = async (req, res) => {
         }
 
         const generated = new GeneratedLetter({
-            tenantId: req.user?.tenantId,
-            applicantId,
+            tenantId: req.user?.tenantId || req.tenantId,
+            applicantId: employeeId ? null : applicantId,
+            employeeId: employeeId || null,
             templateId,
             letterType: 'joining',
             pdfPath: finalRelativePath,
             pdfUrl: finalPdfUrl,
             status: 'generated',
-            generatedBy: req.user?.userId
+            generatedBy: req.user?.id
         });
 
 
         await generated.save();
 
-        // Update Applicant
-        applicant.joiningLetterPath = finalRelativePath;
-        await applicant.save();
+        // Update Target
+        target.joiningLetterPath = finalRelativePath;
+        await target.save();
 
         // RETURN PDF URL IMMEDIATELY
         res.json({
@@ -1264,8 +1317,14 @@ exports.generateJoiningLetter = async (req, res) => {
         });
 
     } catch (error) {
+        // Test comment
         console.error('🔥 [JOINING LETTER] FATAL ERROR:', error);
-        res.status(500).json({ message: "Internal Error", error: error.message });
+        res.status(500).json({
+            success: false,
+            message: "Generate Failed: " + error.message,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
@@ -1376,11 +1435,12 @@ exports.generateOfferLetter = async (req, res) => {
 
                 // Father name - support multiple placeholder variations
                 father_name: finalFatherName,
-                father_names: finalFatherName, // Plural alias
-                fatherName: finalFatherName, // CamelCase alias
-                fatherNames: finalFatherName, // CamelCase plural alias
-                FATHER_NAME: finalFatherName, // Uppercase alias
-                FATHER_NAMES: finalFatherName, // Uppercase plural alias
+                father_names: finalFatherName,
+                fatherName: finalFatherName,
+                fatherNames: finalFatherName,
+                FATHER_NAME: finalFatherName,
+                FATHER_NAMES: finalFatherName,
+
                 designation: safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
                 // Joining Date: HR Input (Modal) -> Applicant DB (Fallback)
                 // Joining Date: Force format even if DB has ISO string
@@ -1390,7 +1450,8 @@ exports.generateOfferLetter = async (req, res) => {
 
                 // Location: HR Input (Modal) -> Applicant DB (Fallback)
                 location: safeString(location || applicant.location || applicant.workLocation),
-                // Address: HR Input (Modal) -> Applicant DB (Fallback)
+
+                // Address: Priority -> Modal Input (address) -> Database (applicant.address)
                 address: safeString(address || applicant.address),
                 candidate_address: safeString(address || applicant.address),
                 // Ref No: HR Input (Modal) ONLY
@@ -1416,7 +1477,14 @@ exports.generateOfferLetter = async (req, res) => {
             };
 
             console.log('🔥 [OFFER LETTER] Word template data:', offerData);
-            console.log('📅 [OFFER LETTER] Issued Date:', issuedDate, '(Use {{issued_date}} in your Word template)');
+            console.log('📅 [OFFER LETTER] Issue Date:', issuedDateStr);
+            console.log('👤 [OFFER LETTER] Salutation:', finalSalutation);
+            console.log('👤 [OFFER LETTER] Candidate Name (with salutation):', candidateNameWithSalutation);
+            console.log('📋 [OFFER LETTER] All Date Placeholders:', {
+                issued_date: issuedDateStr,
+                Date_odt: issuedDateStr,
+                Date: issuedDateStr
+            });
 
             // Render the document
             doc.render(offerData);
@@ -1430,16 +1498,16 @@ exports.generateOfferLetter = async (req, res) => {
             const docxPath = path.join(outputDir, `${fileName}.docx`);
             await fsPromises.writeFile(docxPath, buf);
 
-            // --- SYNCHRONOUS VIDEO CONVERSION ---
+            // --- SYNCHRONOUS PDF CONVERSION ---
             try {
                 console.log('🔄 [OFFER LETTER] Starting Synchronous PDF Conversion...');
                 const libreOfficeService = require('../services/LibreOfficeService');
 
                 const pdfAbsolutePath = libreOfficeService.convertToPdfSync(docxPath, outputDir);
-                const pdfFileName = path.basename(pdfAbsolutePath);
+                pdfFileName = path.basename(pdfAbsolutePath);
 
                 relativePath = `offers/${pdfFileName}`;
-                downloadUrl = `/uploads/${relativePath}`; // The URL to the PDF
+                downloadUrl = `/uploads/${relativePath}`;
 
                 console.log('✅ [OFFER LETTER] PDF Conversion Successful:', downloadUrl);
 
@@ -1455,11 +1523,7 @@ exports.generateOfferLetter = async (req, res) => {
             // Handle HTML template processing (Now using LibreOffice)
             console.log('🔥 [OFFER LETTER] Processing HTML template (Sync using LibreOffice)');
 
-            // 1. Prepare Data (Reuse same logic as Word)
             const safeString = (val) => (val !== undefined && val !== null ? String(val) : '');
-
-            // Map keys for HTML replacement (e.g. {{employee_name}})
-            // Prioritize Body Input -> Applicant DB
             const finalFatherName = safeString(fatherName || applicant.fatherName);
 
             // Get issued date - From Modal or TODAY
@@ -1472,47 +1536,47 @@ exports.generateOfferLetter = async (req, res) => {
                 '{{employee_name}}': fullName,
                 '{{candidate_name}}': fullName,
                 '{{father_name}}': finalFatherName,
-                '{{father_names}}': finalFatherName, // Alias
+                '{{father_names}}': finalFatherName,
                 '{{designation}}': safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
                 '{{joining_date}}': safeString(joiningDate ? formatCustomDate(joiningDate, dateFormat) : (applicant.joiningDate ? formatCustomDate(applicant.joiningDate, dateFormat) : '')),
                 '{{location}}': safeString(location || applicant.location || applicant.workLocation),
-                '{{address}}': safeString(applicant.address || address),
+                '{{address}}': safeString(address || applicant.address),
                 '{{offer_ref_no}}': safeString(refNo),
-                // Issued Date - support multiple placeholder variations
-                '{{issued_date}}': issuedDate,
-                '{{issuedDate}}': issuedDate, // CamelCase alias
-                '{{ISSUED_DATE}}': issuedDate, // Uppercase alias
-                // Current date (legacy support)
-                '{{current_date}}': issuedDate
+                '{{issued_date}}': issuedDateStr,
+                '{{issuedDate}}': issuedDateStr,
+                '{{ISSUED_DATE}}': issuedDateStr,
+                '{{current_date}}': issuedDateStr,
+                '{{Date}}': issuedDateStr,
+                '{{DATE}}': issuedDateStr,
+                '{{Date_odt}}': issuedDateStr,
+                '{{date_odt}}': issuedDateStr,
+                '{{DATE_ODT}}': issuedDateStr
             };
 
-            // 2. Populate HTML Content
             let htmlContent = template.bodyContent || '';
-
-            // Replace all placeholders
             Object.keys(replacements).forEach(key => {
                 const regex = new RegExp(key, 'g');
                 htmlContent = htmlContent.replace(regex, replacements[key]);
             });
 
-            // Wrap in basic HTML structure if missing to ensure proper rendering
             if (!htmlContent.includes('<html')) {
                 htmlContent = `
-                    <html>
-                    <head>
-                        <style>
-                            body { font-family: 'Arial', sans-serif; font-size: 12pt; line-height: 1.5; color: #000; }
-                            p { margin-bottom: 1rem; }
-                        </style>
-                    </head>
-                    <body>
-                        ${htmlContent}
-                    </body>
-                    </html>
-                `;
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { font-family: 'Arial', sans-serif; line-height: 1.6; padding: 40px; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        .content { margin-bottom: 30px; }
+                    </style>
+                </head>
+                <body>
+                    ${htmlContent}
+                </body>
+                </html>`;
             }
 
-            // 3. Save to Temp HTML File
             const fileName = `Offer_Letter_${applicantId}_${Date.now()}`;
             const outputDir = path.join(__dirname, '../uploads/offers');
             if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -1520,28 +1584,16 @@ exports.generateOfferLetter = async (req, res) => {
             const htmlPath = path.join(outputDir, `${fileName}.html`);
             await fsPromises.writeFile(htmlPath, htmlContent);
 
-            // 4. Convert HTML to PDF Synchronously
             try {
-                console.log('🔄 [OFFER LETTER] Converting HTML to PDF (LibreOffice)...');
                 const libreOfficeService = require('../services/LibreOfficeService');
-
                 const pdfAbsolutePath = libreOfficeService.convertToPdfSync(htmlPath, outputDir);
-                const pdfFileName = path.basename(pdfAbsolutePath);
-
+                pdfFileName = path.basename(pdfAbsolutePath);
                 relativePath = `offers/${pdfFileName}`;
-                downloadUrl = `/uploads/${relativePath}`; // Standard URL
-
-                console.log('✅ [OFFER LETTER] HTML -> PDF Conversion Successful:', downloadUrl);
-
-                // Optional: Clean up HTML file to save space
-                // await fsPromises.unlink(htmlPath).catch(err => console.warn('Failed to delete temp html:', err));
-
+                downloadUrl = `/uploads/${relativePath}`;
+                console.log('✅ [OFFER LETTER] HTML-to-PDF Conversion Successful:', downloadUrl);
             } catch (pdfError) {
-                console.error('⚠️ [OFFER LETTER] HTML Conversion Failed:', pdfError.message);
-                return res.status(500).json({
-                    message: "PDF Generation Failed (HTML). Please ensure LibreOffice is installed.",
-                    error: pdfError.message
-                });
+                console.error('⚠️ [OFFER LETTER] HTML-to-PDF Conversion Failed:', pdfError.message);
+                return res.status(500).json({ message: "PDF Generation Failed", error: pdfError.message });
             }
         }
 
@@ -1630,33 +1682,40 @@ exports.getHistory = async (req, res) => {
  */
 exports.previewJoiningLetter = async (req, res) => {
     try {
-        const { applicantId, templateId } = req.body;
+        const { applicantId, employeeId, templateId } = req.body;
         const Applicant = getApplicantModel(req);
+        const { Employee, LetterTemplate } = getModels(req);
 
-        console.log('🔥 [PREVIEW JOINING LETTER] Request received:', { applicantId, templateId });
+        console.log('🔥 [PREVIEW JOINING LETTER] Request received:', { applicantId, employeeId, templateId });
         console.log('🔥 [PREVIEW JOINING LETTER] User context:', req.user ? { userId: req.user.userId, tenantId: req.user.tenantId } : 'null');
 
         // Validate input
-        if (!applicantId || !templateId) {
+        if (!templateId || (!applicantId && !employeeId)) {
             console.error('🔥 [PREVIEW JOINING LETTER] Missing required parameters');
-            return res.status(400).json({ message: "applicantId and templateId are required" });
+            return res.status(400).json({ message: "templateId and (applicantId or employeeId) are required" });
         }
 
-        // Validate IDs
-        if (!mongoose.Types.ObjectId.isValid(applicantId) || !mongoose.Types.ObjectId.isValid(templateId)) {
-            console.error('🔥 [PREVIEW JOINING LETTER] Invalid ID format');
-            return res.status(400).json({ message: "Invalid ID format" });
+        // Fetch target (Applicant or Employee)
+        let target;
+        let targetType;
+        if (employeeId) {
+            target = await Employee.findById(employeeId);
+            targetType = 'employee';
+        } else {
+            target = await Applicant.findById(applicantId).populate('requirementId');
+            targetType = 'applicant';
         }
 
-        // Find applicant
-        const applicant = await Applicant.findById(applicantId).populate('requirementId');
-        if (!applicant) {
-            console.error('🔥 [PREVIEW JOINING LETTER] Applicant not found:', applicantId);
-            return res.status(404).json({ message: "Applicant not found" });
+        if (!target) {
+            console.error(`🔥 [PREVIEW JOINING LETTER] ${targetType === 'employee' ? 'Employee' : 'Applicant'} not found:`, employeeId || applicantId);
+            return res.status(404).json({ message: `${targetType === 'employee' ? 'Employee' : 'Applicant'} not found` });
         }
 
-        // Get tenant-specific model
-        const { LetterTemplate, SalaryStructure } = getModels(req);
+        // 1. MUST BE LOCKED
+        if (!target.salaryLocked) {
+            console.error('🔥 [PREVIEW JOINING LETTER] BLOCKED: Salary not locked for', targetType, target._id);
+            return res.status(400).json({ message: "Salary must be confirmed and locked before generating joining letter." });
+        }
 
         // Build query - handle missing req.user gracefully
         const templateQuery = { _id: templateId };
@@ -1671,24 +1730,10 @@ exports.previewJoiningLetter = async (req, res) => {
             return res.status(404).json({ message: "Template not found" });
         }
 
-        console.log('🔥 [PREVIEW JOINING LETTER] Template found:', {
-            id: template._id,
-            name: template.name,
-            type: template.type,
-            templateType: template.templateType,
-            filePath: template.filePath ? 'present' : 'missing'
-        });
-
         // Validate template type
-        if (template.type !== 'joining') {
-            console.error('🔥 [PREVIEW JOINING LETTER] Invalid template type:', template.type);
-            return res.status(400).json({ message: "Invalid template type for joining letter. Expected 'joining' type." });
-        }
-
-        // Validate template templateType (must be WORD)
-        if (template.templateType !== 'WORD') {
-            console.error('🔥 [PREVIEW JOINING LETTER] Invalid template templateType:', template.templateType);
-            return res.status(400).json({ message: "This template is not a WORD template. Only WORD templates are supported for joining letters." });
+        if (template.type !== 'joining' || template.templateType !== 'WORD') {
+            console.error('🔥 [PREVIEW JOINING LETTER] Invalid template type or templateType:', template.type, template.templateType);
+            return res.status(400).json({ message: "Invalid template. Only WORD-based Joining Letter templates are supported." });
         }
 
         // 1. Validate and normalize file path
@@ -1741,10 +1786,35 @@ exports.previewJoiningLetter = async (req, res) => {
 
         // 3. Prepare Data - FETCH FROM EmployeeSalarySnapshot (Single Source of Truth)
         const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
-        const snapshot = await EmployeeSalarySnapshot.findOne({ applicant: applicantId }).sort({ createdAt: -1 }).lean();
+
+        // NEW: Check for embedded snapshot first (Applicant 2.0 flow)
+        let snapshot = null;
+        if (targetType === 'applicant' && target.salarySnapshot) {
+            console.log('[PREVIEW JOINING LETTER] Using embedded salarySnapshot from Applicant');
+            snapshot = target.salarySnapshot.breakdown || target.salarySnapshot;
+        }
 
         if (!snapshot) {
-            console.error(`[PREVIEW JOINING LETTER] EmployeeSalarySnapshot not found for applicant: ${applicantId}.`);
+            const query = employeeId ? { employee: employeeId } : { applicant: applicantId };
+            snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 }).lean();
+        }
+
+        // Robust Fallback: Check target's specific snapshot references
+        if (!snapshot && target) {
+            console.log(`[PREVIEW JOINING LETTER] Snapshot not found by query, trying target references for ${targetType}`);
+            const snapId = target.currentSalarySnapshotId || target.salarySnapshotId;
+            if (snapId) {
+                snapshot = await EmployeeSalarySnapshot.findById(snapId).lean();
+            }
+            // If still not found and is employee, check their snapshots array
+            if (!snapshot && targetType === 'employee' && target.salarySnapshots?.length > 0) {
+                const lastSnapId = target.salarySnapshots[target.salarySnapshots.length - 1];
+                snapshot = await EmployeeSalarySnapshot.findById(lastSnapId).lean();
+            }
+        }
+
+        if (!snapshot) {
+            console.error(`[PREVIEW JOINING LETTER] EmployeeSalarySnapshot not found for ${targetType}: ${employeeId || applicantId}. Checked query and target refs.`);
             return res.status(400).json({ message: "Salary snapshot not found. Please complete Salary Assignment first." });
         }
 
@@ -1752,12 +1822,13 @@ exports.previewJoiningLetter = async (req, res) => {
         const cur = (val) => Math.round(val || 0).toLocaleString('en-IN');
 
         const earnings = snapshot.earnings || [];
-        const deductions = snapshot.deductions || [];
+        const employeeDeductions = snapshot.employeeDeductions || snapshot.deductions || [];
+        const employerDeductions = snapshot.employerDeductions || [];
         const benefits = snapshot.benefits || [];
 
-        const totalEarningsAnnual = earnings.reduce((sum, e) => sum + e.annualAmount, 0);
-        const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + b.annualAmount, 0);
-        const totalDeductionsAnnual = deductions.reduce((sum, d) => sum + d.annualAmount, 0);
+        const totalEarningsAnnual = earnings.reduce((sum, e) => sum + (e.annualAmount || (e.monthlyAmount * 12) || 0), 0);
+        const totalBenefitsAnnual = benefits.reduce((sum, b) => sum + (b.annualAmount || (b.monthlyAmount * 12) || 0), 0);
+        const totalDeductionsAnnual = employeeDeductions.reduce((sum, d) => sum + (d.annualAmount || (d.monthlyAmount * 12) || 0), 0);
 
         const grossAAnnual = totalEarningsAnnual;
         const netAnnual = totalEarningsAnnual - totalDeductionsAnnual;
@@ -1772,13 +1843,13 @@ exports.previewJoiningLetter = async (req, res) => {
 
         const flatData = {};
         earnings.forEach(e => { flatData[e.code] = cur(e.monthlyAmount); flatData[`${e.code}_ANNUAL`] = cur(e.annualAmount); });
-        deductions.forEach(d => { flatData[d.code] = cur(d.monthlyAmount); flatData[`${d.code}_ANNUAL`] = cur(d.annualAmount); });
+        employeeDeductions.forEach(d => { flatData[d.code] = cur(d.monthlyAmount); flatData[`${d.code}_ANNUAL`] = cur(d.annualAmount); });
         benefits.forEach(b => { flatData[b.code] = cur(b.monthlyAmount); flatData[`${b.code}_ANNUAL`] = cur(b.annualAmount); });
 
         req.calculatedSalaryData = {
-            earnings: earnings.map(e => ({ name: e.name, monthly: cur(e.monthlyAmount), yearly: cur(e.annualAmount) })),
-            deductions: deductions.map(d => ({ name: d.name, monthly: cur(d.monthlyAmount), yearly: cur(d.annualAmount) })),
-            benefits: benefits.map(b => ({ name: b.name, monthly: cur(b.monthlyAmount), yearly: cur(b.annualAmount) })),
+            earnings: earnings.map(e => ({ name: e.name, monthly: cur(e.monthlyAmount), yearly: cur(e.annualAmount || (e.monthlyAmount * 12)) })),
+            deductions: employeeDeductions.map(d => ({ name: d.name, monthly: cur(d.monthlyAmount), yearly: cur(d.annualAmount || (d.monthlyAmount * 12)) })),
+            benefits: benefits.map(b => ({ name: b.name, monthly: cur(b.monthlyAmount), yearly: cur(b.annualAmount || (b.monthlyAmount * 12)) })),
             totals,
             flatData
         };
@@ -1929,7 +2000,7 @@ exports.previewJoiningLetter = async (req, res) => {
 
         // 5. Generate Output (DOCX) - Temporary
         const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
-        const fileName = `Preview_Joining_Letter_${applicantId}_${Date.now()}`;
+        const fileName = `Preview_Joining_Letter_${employeeId || applicantId || 'preview'}_${Date.now()}`;
         const outputDir = path.join(__dirname, '../uploads/previews');
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
@@ -1971,7 +2042,7 @@ exports.previewJoiningLetter = async (req, res) => {
 
     } catch (error) {
         console.error('🔥 [PREVIEW JOINING LETTER] FATAL 500 ERROR:', error);
-        res.status(500).json({ message: "Internal Error", error: error.message });
+        res.status(500).json({ message: "Internal Error", error: error.message, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined });
     }
 };
 
@@ -2081,7 +2152,7 @@ function processCandidateSalary(structure) {
         };
     });
 
-    const processedDeductions = deductions.map(comp => {
+    const processedDeductions = employeeDeductions.map(comp => {
         const k = normalizeKey(comp.label);
         flatData[`${k}_monthly`] = formatCurrency(comp.monthly);
         flatData[`${k}_yearly`] = formatCurrency(comp.yearly);
@@ -2191,116 +2262,7 @@ function processCandidateSalary(structure) {
 // Helper to round to 2 decimals
 const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
 
-// ==================== JOINING LETTER GENERATION FUNCTIONS ====================
 
-/**
- * GENERATE JOINING LETTER
- * POST /api/letters/generate-joining
- */
-exports.generateJoiningLetter = async (req, res) => {
-    try {
-        const { applicantId, templateId } = req.body;
-
-        if (!applicantId || !templateId) {
-            return res.status(400).json({ success: false, message: 'Applicant ID and Template ID are required' });
-        }
-
-        const { Applicant, LetterTemplate, CompanyProfile } = getModels(req);
-
-        // Fetch applicant
-        const applicant = await Applicant.findById(applicantId).populate('requirementId', 'title department').lean();
-        if (!applicant) {
-            return res.status(404).json({ success: false, message: 'Applicant not found' });
-        }
-
-        // Validate status
-        if (applicant.status !== 'Selected') {
-            return res.status(400).json({
-                success: false,
-                message: `Cannot generate joining letter. Candidate status is "${applicant.status}". Only SELECTED candidates can receive joining letters.`,
-                currentStatus: applicant.status,
-                requiredStatus: 'Selected'
-            });
-        }
-
-        // Check salary structure - GLOBAL with TENANT FILTER
-        const tenantId = req.user.tenant || req.user.tenantId;
-        const salaryStructure = await SalaryStructure.findOne({ tenantId, candidateId: applicantId }).lean();
-
-        if (!salaryStructure) {
-            return res.status(400).json({
-                success: false,
-                message: 'Salary structure not assigned. Please assign salary before generating joining letter.',
-                action: 'ASSIGN_SALARY_FIRST'
-            });
-        }
-
-        // Check template
-        const template = await LetterTemplate.findById(templateId).lean();
-        if (!template) {
-            return res.status(404).json({ success: false, message: 'Template not found' });
-        }
-
-        if (template.type !== 'joining') {
-            return res.status(400).json({
-                success: false,
-                message: `Invalid template type. Expected "joining", got "${template.type}"`
-            });
-        }
-
-        // Check if already generated
-        if (applicant.joiningLetterPath) {
-            return res.status(400).json({
-                success: false,
-                message: 'Joining letter already generated for this candidate',
-                existingPath: applicant.joiningLetterPath
-            });
-        }
-
-        const companyProfile = await CompanyProfile.findOne().lean();
-
-        // Prepare data
-        const letterData = {
-            candidateName: applicant.name || '',
-            fatherName: applicant.fatherName || '',
-            email: applicant.email || '',
-            mobile: applicant.mobile || '',
-            address: applicant.address || '',
-            position: applicant.requirementId?.title || 'Not Specified',
-            department: applicant.requirementId?.department || applicant.department || '',
-            joiningDate: applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '',
-            location: applicant.location || applicant.workLocation || '',
-            ctcYearly: salaryStructure.totals?.annualCTC || 0,
-            ctcMonthly: salaryStructure.totals?.monthlyCTC || 0,
-            grossSalary: salaryStructure.totals?.grossEarnings || 0,
-            netSalary: salaryStructure.totals?.netSalary || 0,
-            earnings: salaryStructure.earnings || [],
-            deductions: salaryStructure.deductions || [],
-            employerBenefits: salaryStructure.employerBenefits || [],
-            companyName: companyProfile?.companyName || 'Company Name',
-            companyAddress: companyProfile?.address || '',
-            companyPhone: companyProfile?.phone || '',
-            companyEmail: companyProfile?.email || '',
-            companyWebsite: companyProfile?.website || '',
-            letterDate: new Date().toLocaleDateString('en-IN'),
-            refNo: `JL/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`
-        };
-
-        // Generate document
-        const templatePath = normalizeFilePath(template.filePath);
-        if (!fs.existsSync(templatePath)) {
-            return res.status(404).json({ success: false, message: 'Template file not found on server' });
-        }
-
-        const templateBuffer = await fsPromises.readFile(templatePath);
-        const zip = new PizZip(templateBuffer);
-        const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-        doc.render(letterData);
-
-        const outputBuffer = doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
-
-        const outputDir = path.join(__dirname, '../uploads/joining_letters');
-        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
         const fileName = `joining_letter_${applicantId}_${Date.now()}.docx`;
         const outputPath = path.join(outputDir, fileName);
