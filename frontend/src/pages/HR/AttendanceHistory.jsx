@@ -438,7 +438,7 @@ export default function AttendanceHistory() {
                       </div>
                       <div>
                         <p className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tighter">{employee.employee.firstName + " " + employee.employee.lastName}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{employee.employee.employeeId} • {employee.position}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{employee.employee.employeeId} • {employee.employee.role}</p>
                       </div>
                     </div>
                   </td>

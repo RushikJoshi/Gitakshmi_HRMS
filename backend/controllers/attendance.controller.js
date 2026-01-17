@@ -671,7 +671,7 @@ exports.getAllAttendance = async (req, res) => {
         }
 
         const data = await Attendance.find(query)
-            .populate('employee', 'firstName lastName employeeId departmentId')
+            .populate('employee', 'firstName lastName employeeId departmentId role')
             .sort({ date: -1 });
 
         res.json(data);
