@@ -1,277 +1,238 @@
 const mongoose = require('mongoose');
-const SalaryEngine = require('../services/salaryEngine');
+const PayrollCalculator = require('../services/PayrollCalculator');
 
 /**
- * Controller for Salary Operations (Immutability Focused)
+ * ============================================
+ * SALARY CONTROLLER - REFACTORED
+ * ============================================
+ * 
+ * CORE PRINCIPLES:
+ * 1. HR enters ONLY CTC
+ * 2. Backend calculates EVERYTHING
+ * 3. Frontend NEVER calculates
+ * 4. Snapshots are IMMUTABLE once locked
  */
+
 const SalaryController = {
     /**
-     * Preview a salary breakup without saving anything
-     * GET /api/salary/preview
+     * Preview salary breakdown WITHOUT saving
+     * POST /api/salary/preview
+     * Body: { ctcAnnual, components (optional) }
      */
     preview: async (req, res) => {
         try {
-            // Support both GET (query) and POST (body)
-            const params = { ...req.query, ...req.body };
-            const { templateId, ctcAnnual, additionalComponents } = params;
-            const tenantDB = req.tenantDB;
+            const { ctcAnnual, components } = req.body;
 
-            if (!templateId || !ctcAnnual) {
-                return res.status(400).json({ success: false, message: "templateId and ctcAnnual are required" });
+            if (!ctcAnnual || isNaN(ctcAnnual) || ctcAnnual <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Valid Annual CTC is required"
+                });
             }
 
-            const SalaryTemplate = tenantDB.model('SalaryTemplate');
-            const template = await SalaryTemplate.findById(templateId).lean(); // Use lean to allow modification
-
-            if (!template) {
-                return res.status(404).json({ success: false, message: "Template not found" });
-            }
-
-            // Calculation only - no DB write
-            const resolved = await SalaryEngine.calculate({
+            // Calculate using PayrollCalculator
+            const breakdown = PayrollCalculator.calculateSalaryBreakup({
                 annualCTC: Number(ctcAnnual),
-                template,
-                additionalComponents: additionalComponents || []
+                components: components || {}
             });
 
-            // Frontend expects 'deductions' property
-            if (resolved.employeeDeductions) {
-                resolved.deductions = resolved.employeeDeductions;
+            // Validate the breakdown
+            const validation = PayrollCalculator.validateSnapshot(breakdown);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Salary calculation validation failed",
+                    errors: validation.errors
+                });
             }
 
             res.json({
                 success: true,
-                data: resolved
+                data: breakdown,
+                message: "Salary breakdown calculated successfully"
             });
 
         } catch (error) {
             console.error("[SALARY_PREVIEW] Error:", error);
-            res.status(500).json({ success: false, message: error.message });
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
         }
     },
 
     /**
-     * Assign salary to an employee (Creates/Updates DRAFT SalaryAssignment)
+     * Assign salary to Employee or Applicant
      * POST /api/salary/assign
+     * Body: { employeeId OR applicantId, ctcAnnual, components (optional), effectiveDate (optional) }
      */
     assign: async (req, res) => {
         try {
-            let { employeeId, applicantId, templateId, ctcAnnual, effectiveDate, additionalComponents } = req.body;
+            const { employeeId, applicantId, ctcAnnual, components, effectiveDate } = req.body;
             const tenantDB = req.tenantDB;
 
-            if (!templateId || !ctcAnnual) {
-                return res.status(400).json({ success: false, message: "templateId and ctcAnnual are required" });
+            // Validation
+            if (!employeeId && !applicantId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Either employeeId or applicantId is required"
+                });
             }
 
-            const SalaryTemplate = tenantDB.model('SalaryTemplate');
-            const template = await SalaryTemplate.findById(templateId).lean();
-
-            if (!template) {
-                return res.status(404).json({ success: false, message: "Template not found" });
+            if (!ctcAnnual || isNaN(ctcAnnual) || ctcAnnual <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Valid Annual CTC is required"
+                });
             }
 
-            // AUTO-DETECTION: If only one ID is provided, check which model it belongs to
-            if (employeeId && !applicantId) {
-                const Applicant = tenantDB.model('Applicant');
-                const isActuallyApplicant = await Applicant.findById(employeeId).select('_id').lean();
-                if (isActuallyApplicant) {
-                    applicantId = employeeId;
-                    employeeId = null;
-                }
-            } else if (!employeeId && applicantId) {
-                const Employee = tenantDB.model('Employee');
-                const isActuallyEmployee = await Employee.findById(applicantId).select('_id').lean();
-                if (isActuallyEmployee) {
-                    employeeId = applicantId;
-                    applicantId = null;
-                }
-            }
-
-            // 1. Calculate the breakdown for the assignment record
-            const calculated = await SalaryEngine.calculate({
+            // Calculate salary breakdown
+            const breakdown = PayrollCalculator.calculateSalaryBreakup({
                 annualCTC: Number(ctcAnnual),
-                template,
-                additionalComponents: additionalComponents || []
+                components: components || {}
             });
 
-            const SalaryAssignment = tenantDB.model('SalaryAssignment');
-
-            // 2. Clear old "Current" assignments if this is a new assignment
-            if (employeeId) {
-                await SalaryAssignment.updateMany({ employeeId, isCurrent: true }, { isCurrent: false });
+            // Validate
+            const validation = PayrollCalculator.validateSnapshot(breakdown);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Salary calculation validation failed",
+                    errors: validation.errors
+                });
             }
 
-            // 3. Create/Update SalaryAssignment Record (The DRAFT structure)
-            const assignment = await SalaryAssignment.create({
-                tenantId: req.tenantId,
-                employeeId: employeeId || null,
-                applicantId: applicantId || null,
-                salaryTemplateId: templateId,
-                ctcAnnual: Number(ctcAnnual),
-                monthlyCTC: calculated.monthlyCTC,
-                earnings: calculated.earnings,
-                deductions: calculated.employeeDeductions,
-                benefits: calculated.benefits,
-                netSalaryMonthly: calculated.totals.netMonthly,
-                effectiveFrom: effectiveDate || new Date(),
-                isConfirmed: false,
-                isCurrent: true,
-                assignedBy: req.user.id
+            // Create Salary Snapshot (UNLOCKED - can be modified)
+            const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
+
+            const snapshot = await EmployeeSalarySnapshot.create({
+                employee: employeeId || null,
+                applicant: applicantId || null,
+                tenant: req.user.tenantId,
+                ctc: breakdown.annualCTC,
+                monthlyCTC: breakdown.monthlyCTC,
+                earnings: breakdown.earnings,
+                employeeDeductions: breakdown.employeeDeductions,
+                benefits: breakdown.benefits,
+                breakdown: breakdown.breakdown,
+                effectiveFrom: effectiveDate ? new Date(effectiveDate) : new Date(),
+                locked: false, // NOT locked yet - can be modified
+                createdBy: req.user.id,
+                reason: 'ASSIGNMENT'
             });
 
-            // 4. Update Employee to mark salary as ASSIGNED (but not yet locked)
+            // Update Employee/Applicant record
             if (employeeId) {
                 const Employee = tenantDB.model('Employee');
                 await Employee.findByIdAndUpdate(employeeId, {
                     $set: {
                         salaryAssigned: true,
-                        salaryLocked: false, // Ensure it's unlocked if we just assigned/re-assigned
-                        salaryTemplateId: templateId // Keep legacy sync for UI
+                        salaryLocked: false,
+                        currentSnapshotId: snapshot._id,
+                        salarySnapshotId: snapshot._id
                     }
                 });
             }
 
             if (applicantId) {
-                await tenantDB.model('Applicant').findByIdAndUpdate(applicantId, {
+                const Applicant = tenantDB.model('Applicant');
+                await Applicant.findByIdAndUpdate(applicantId, {
                     $set: {
                         salaryAssigned: true,
-                        salaryLocked: false
+                        salaryLocked: false,
+                        salarySnapshotId: snapshot._id,
+                        salarySnapshot: {
+                            ctc: breakdown.annualCTC,
+                            monthlyCTC: breakdown.monthlyCTC,
+                            earnings: breakdown.earnings,
+                            employeeDeductions: breakdown.employeeDeductions,
+                            benefits: breakdown.benefits,
+                            breakdown: breakdown.breakdown
+                        }
                     }
                 });
             }
 
             res.status(201).json({
                 success: true,
-                message: "Salary assigned successfully. Please CONFIRM to lock and generate letters.",
-                data: assignment
+                message: "Salary assigned successfully. Call /confirm to lock it.",
+                data: {
+                    snapshot: snapshot,
+                    breakdown: breakdown
+                }
             });
 
         } catch (error) {
             console.error("[SALARY_ASSIGN] Error:", error);
-            res.status(500).json({ success: false, message: error.message });
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
         }
     },
 
     /**
-     * Confirm salary and create IMMUTABLE snapshot (LOCKED)
+     * Confirm and LOCK salary snapshot
      * POST /api/salary/confirm
+     * Body: { employeeId OR applicantId, snapshotId (optional) }
      */
     confirm: async (req, res) => {
         try {
-            const { employeeId, applicantId, assignmentId, reason } = req.body;
+            const { employeeId, applicantId, snapshotId, reason } = req.body;
             const tenantDB = req.tenantDB;
 
-            const SalaryAssignment = tenantDB.model('SalaryAssignment');
-            const Employee = tenantDB.model('Employee');
-            const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
-            const SalaryTemplate = tenantDB.model('SalaryTemplate');
-
-            let targetId = employeeId || applicantId;
-            let query = assignmentId
-                ? { _id: assignmentId }
-                : (employeeId ? { employeeId: targetId, isCurrent: true } : { applicantId: targetId, isCurrent: true });
-
-            const assignment = await SalaryAssignment.findOne(query);
-
-            if (!assignment) {
-                return res.status(404).json({ success: false, message: "Active salary assignment not found. Assign salary first." });
-            }
-
-            // AUTO-HEALING: If assignment is missing core CTC data (Legacy record)
-            // Or if it was created without the full breakup
-            if (!assignment.ctcAnnual || !assignment.earnings || assignment.earnings.length === 0) {
-                console.log(`[SALARY_CONFIRM] Detected legacy/incomplete assignment ${assignment._id}. Attempting auto-healing...`);
-
-                const template = await SalaryTemplate.findById(assignment.salaryTemplateId).lean();
-                if (!template) {
-                    return res.status(400).json({ success: false, message: "Cannot confirm: Original template not found and assignment data is incomplete." });
-                }
-
-                // Fallback to template CTC if assignment is missing it
-                const ctcToUse = assignment.ctcAnnual || assignment.assignmentSnapshot?.annualCTC || template.annualCTC;
-
-                if (!ctcToUse) {
-                    return res.status(400).json({ success: false, message: "Cannot confirm: Assignment and Template are missing CTC value." });
-                }
-
-                const calculated = await SalaryEngine.calculate({
-                    annualCTC: Number(ctcToUse),
-                    template
-                });
-
-                // Update assignment in-memory (and save it too for future references)
-                assignment.ctcAnnual = calculated.annualCTC;
-                assignment.monthlyCTC = calculated.monthlyCTC;
-                assignment.earnings = calculated.earnings;
-                assignment.deductions = calculated.employeeDeductions;
-                assignment.benefits = calculated.benefits;
-                assignment.netSalaryMonthly = calculated.totals.netMonthly;
-                await assignment.save();
-                console.log(`[SALARY_CONFIRM] Auto-healed assignment ${assignment._id}`);
-            }
-
-            // 1. Fetch the target to get the previous snapshot
-            const target = employeeId ? await Employee.findById(employeeId) : await tenantDB.model('Applicant').findById(applicantId);
-            const prevSnapshotId = target?.currentSnapshotId || target?.currentSalarySnapshotId || null;
-
-            // 2. Create the IMMUTABLE EmployeeSalarySnapshot
-            // Wrap in try-catch to provide better error messages if validation fails
-            let snapshot;
-            try {
-                snapshot = await EmployeeSalarySnapshot.create({
-                    employee: employeeId,
-                    applicant: applicantId,
-                    tenant: req.tenantId,
-                    templateId: assignment.salaryTemplateId,
-                    ctc: assignment.ctcAnnual,
-                    monthlyCTC: assignment.monthlyCTC || Math.round((assignment.ctcAnnual / 12) * 100) / 100,
-                    earnings: assignment.earnings,
-                    employeeDeductions: assignment.deductions,
-                    benefits: assignment.benefits,
-                    breakdown: {
-                        takeHome: assignment.netSalaryMonthly,
-                        grossA: assignment.earnings?.reduce((sum, e) => sum + e.monthlyAmount, 0) || 0
-                    },
-                    effectiveFrom: assignment.effectiveFrom,
-                    locked: true, // AUTO-LOCK on confirmation
-                    lockedAt: new Date(),
-                    lockedBy: req.user.id,
-                    reason: reason || 'JOINING',
-                    previousSnapshotId: prevSnapshotId,
-                    createdBy: req.user.id
-                });
-            } catch (snapError) {
-                console.error("[SALARY_CONFIRM] Snapshot Validation Failed:", snapError);
+            if (!employeeId && !applicantId) {
                 return res.status(400).json({
                     success: false,
-                    message: "Salary snapshot creation failed. Please check if all salary components have valid values.",
-                    details: snapError.message
+                    message: "Either employeeId or applicantId is required"
                 });
             }
 
-            // 3. Mark Assignment as Confirmed
-            assignment.isConfirmed = true;
-            await assignment.save();
+            const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
 
-            // 4. Update Employee - LOCK SALARY
+            // Find the snapshot to lock
+            let snapshot;
+            if (snapshotId) {
+                snapshot = await EmployeeSalarySnapshot.findById(snapshotId);
+            } else {
+                // Find the most recent unlocked snapshot
+                const query = employeeId
+                    ? { employee: employeeId, locked: false }
+                    : { applicant: applicantId, locked: false };
+
+                snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ createdAt: -1 });
+            }
+
+            if (!snapshot) {
+                return res.status(404).json({
+                    success: false,
+                    message: "No unlocked salary snapshot found. Assign salary first."
+                });
+            }
+
+            // LOCK the snapshot
+            snapshot.locked = true;
+            snapshot.lockedAt = new Date();
+            snapshot.lockedBy = req.user.id;
+            snapshot.reason = reason || snapshot.reason || 'CONFIRMED';
+            await snapshot.save();
+
+            // Update Employee/Applicant - mark as LOCKED
             if (employeeId) {
+                const Employee = tenantDB.model('Employee');
                 await Employee.findByIdAndUpdate(employeeId, {
                     $set: {
-                        salaryAssigned: true,
                         salaryLocked: true,
-                        currentSnapshotId: snapshot._id,
-                        currentSalarySnapshotId: snapshot._id, // Unified
-                        salarySnapshotId: snapshot._id // Legacy
+                        currentSnapshotId: snapshot._id
                     },
-                    $push: { salarySnapshots: snapshot._id }
+                    $addToSet: { salarySnapshots: snapshot._id }
                 });
             }
 
-            // Update Applicant
             if (applicantId) {
-                await tenantDB.model('Applicant').findByIdAndUpdate(applicantId, {
+                const Applicant = tenantDB.model('Applicant');
+                await Applicant.findByIdAndUpdate(applicantId, {
                     $set: {
-                        salaryAssigned: true,
                         salaryLocked: true,
                         salarySnapshotId: snapshot._id
                     }
@@ -280,13 +241,55 @@ const SalaryController = {
 
             res.json({
                 success: true,
-                message: "Salary confirmed and locked successfully.",
+                message: "Salary confirmed and locked successfully. Snapshot is now immutable.",
                 data: snapshot
             });
 
         } catch (error) {
-            console.error("[SALARY_CONFIRM] Unexpected Error:", error);
-            res.status(500).json({ success: false, message: error.message });
+            console.error("[SALARY_CONFIRM] Error:", error);
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    },
+
+    /**
+     * Get salary snapshot for an employee/applicant
+     * GET /api/salary/snapshot/:id
+     */
+    getSnapshot: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { type } = req.query; // 'employee' or 'applicant'
+            const tenantDB = req.tenantDB;
+
+            const EmployeeSalarySnapshot = tenantDB.model('EmployeeSalarySnapshot');
+
+            const query = type === 'applicant'
+                ? { applicant: id, locked: true }
+                : { employee: id, locked: true };
+
+            const snapshot = await EmployeeSalarySnapshot.findOne(query).sort({ effectiveFrom: -1 });
+
+            if (!snapshot) {
+                return res.status(404).json({
+                    success: false,
+                    message: "No salary snapshot found"
+                });
+            }
+
+            res.json({
+                success: true,
+                data: snapshot
+            });
+
+        } catch (error) {
+            console.error("[GET_SNAPSHOT] Error:", error);
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
         }
     }
 };

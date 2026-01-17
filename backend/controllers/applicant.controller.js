@@ -174,81 +174,118 @@ exports.markInterviewCompleted = async (req, res) => {
 };
 
 /**
- * ASSIGN SALARY TO APPLICANT (NEW IMMUTABLE FLOW)
- * POST /api/applicants/:id/assign-salary
+ * ASSIGN SALARY TO APPLICANT (REFACTORED - CTC ONLY)
+ * POST /api/requirements/applicants/:id/assign-salary
  */
 exports.assignSalary = async (req, res) => {
     try {
         const { id } = req.params;
-        const { salaryTemplateId, annualCTC, effectiveDate } = req.body;
+        const { ctcAnnual } = req.body;
 
-        if (!annualCTC || !salaryTemplateId) {
-            return res.status(400).json({ message: "Annual CTC and Salary Template are required" });
+        // Validation
+        if (!ctcAnnual || isNaN(ctcAnnual) || Number(ctcAnnual) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid Annual CTC is required"
+            });
         }
 
-        const { Applicant, SalaryTemplate } = getModels(req);
+        const { Applicant } = getModels(req);
 
         const applicant = await Applicant.findById(id);
-        if (!applicant) return res.status(404).json({ message: "Applicant not found" });
-
-        if (applicant.status !== 'Selected' && applicant.status !== 'Offer Accepted') {
-            // For now, allow but warn? Or strict? 
-            // "Validate applicant status = Selected" - user requirement.
-            // I will allow 'Offer Accepted' as it comes after Selected usually.
+        if (!applicant) {
+            return res.status(404).json({
+                success: false,
+                message: "Applicant not found"
+            });
         }
 
-        const template = await SalaryTemplate.findById(salaryTemplateId);
-        if (!template) return res.status(404).json({ message: "Salary Template not found" });
+        // Optional: Validate applicant status
+        if (applicant.status !== 'Selected' && applicant.status !== 'Offer Accepted') {
+            console.warn(`[ASSIGN_SALARY] Applicant ${id} status is ${applicant.status}, not Selected/Offer Accepted`);
+        }
 
-        // Calculate using Engine (Generates Snapshot Document)
-        const result = await SalaryEngine.generateSnapshot({
-            tenantDB: req.tenantDB,
-            applicantId: applicant._id,
-            tenantId: req.user.tenantId,
-            annualCTC: Number(annualCTC),
-            template: template.toObject(),
-            effectiveDate: effectiveDate || new Date()
+        // Use PayrollCalculator for calculation
+        const PayrollCalculator = require('../services/PayrollCalculator');
+
+        const breakdown = PayrollCalculator.calculateSalaryBreakup({
+            annualCTC: Number(ctcAnnual),
+            components: {} // Use default Indian payroll rules
         });
 
-        // Parse Engine Result
-        const earnings = result.earnings || [];
-        const benefits = result.benefits || [];
+        // Validate the breakdown
+        const validation = PayrollCalculator.validateSnapshot(breakdown);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: "Salary calculation validation failed",
+                errors: validation.errors
+            });
+        }
 
-        const basic = earnings.find(e => e.code === 'BASIC' || e.name.toLowerCase() === 'basic')?.monthlyAmount || 0;
-        const hra = earnings.find(e => e.code === 'HRA' || e.name.toLowerCase().includes('house'))?.monthlyAmount || 0;
-        const gratuity = benefits.find(b => b.name.toLowerCase().includes('gratuity'))?.monthlyAmount || 0;
+        // Create immutable snapshot in EmployeeSalarySnapshot collection
+        const EmployeeSalarySnapshot = req.tenantDB.model('EmployeeSalarySnapshot');
 
-        const grossA = result.totals.grossMonthly; // Monthly Gross Earnings
-        const grossB = grossA + gratuity; // User Formula: Gross A + Gratuity (Note: Gratuity is usually annual/monthly? Assuming monthly context for comparison)
+        const snapshot = await EmployeeSalarySnapshot.create({
+            applicant: applicant._id,
+            tenant: req.user.tenantId,
+            ctc: breakdown.annualCTC,
+            monthlyCTC: breakdown.monthlyCTC,
+            earnings: breakdown.earnings,
+            employeeDeductions: breakdown.employeeDeductions,
+            benefits: breakdown.benefits,
+            breakdown: breakdown.breakdown,
+            effectiveFrom: new Date(),
+            locked: true, // Auto-lock for applicants
+            lockedAt: new Date(),
+            lockedBy: req.user.id,
+            reason: 'JOINING',
+            createdBy: req.user.id
+        });
 
-        // Populate Embedded Snapshot
-        const embeddedSnapshot = {
-            basicMonthly: basic,
-            hraMonthly: hra,
-            grossA: grossA,
-            gratuity: gratuity,
-            grossB: grossB,
-            employerContributions: result.totals.benefitsMonthly,
-            ctcMonthly: result.monthlyCTC,
-            ctcYearly: result.annualCTC,
-            takeHomeMonthly: result.totals.netMonthly,
-            breakdown: result, // Full engine result
+        // Update applicant with salary info
+        applicant.salarySnapshot = {
+            ctc: breakdown.annualCTC,
+            monthlyCTC: breakdown.monthlyCTC,
+            earnings: breakdown.earnings,
+            employeeDeductions: breakdown.employeeDeductions,
+            benefits: breakdown.benefits,
+            breakdown: breakdown.breakdown,
+            // Legacy fields for backward compatibility
+            basicMonthly: breakdown.earnings.find(e => e.code === 'BASIC')?.monthlyAmount || 0,
+            hraMonthly: breakdown.earnings.find(e => e.code === 'HRA')?.monthlyAmount || 0,
+            grossA: breakdown.grossEarnings.monthly,
+            gratuity: breakdown.benefits.find(b => b.code === 'GRATUITY')?.monthlyAmount || 0,
+            grossB: breakdown.grossEarnings.monthly + (breakdown.benefits.find(b => b.code === 'GRATUITY')?.monthlyAmount || 0),
+            employerContributions: breakdown.totalBenefits.monthly,
+            ctcMonthly: breakdown.monthlyCTC,
+            ctcYearly: breakdown.annualCTC,
+            takeHomeMonthly: breakdown.netPay.monthly,
             generatedAt: new Date()
         };
 
-        applicant.salaryTemplateId = salaryTemplateId;
-        applicant.salarySnapshot = embeddedSnapshot;
         applicant.salaryAssigned = true;
         applicant.salaryLocked = true;
-        applicant.salarySnapshotId = result._id;
+        applicant.salarySnapshotId = snapshot._id;
 
         await applicant.save();
 
-        res.json({ success: true, message: "Salary assigned successfully", data: applicant });
+        res.json({
+            success: true,
+            message: "Salary assigned and locked successfully",
+            data: {
+                applicant: applicant,
+                snapshot: snapshot,
+                breakdown: breakdown
+            }
+        });
 
     } catch (error) {
         console.error("Assign Salary Error:", error);
-        res.status(500).json({ message: error.message });
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 

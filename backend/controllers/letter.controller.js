@@ -1300,7 +1300,7 @@ exports.generateJoiningLetter = async (req, res) => {
 exports.generateOfferLetter = async (req, res) => {
     try {
         // Accept params from the Generate Modal
-        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName } = req.body;
+        const { applicantId, templateId, imageData, refNo, joiningDate, address, department, location, fatherName, salutation, issueDate } = req.body;
         const Applicant = getApplicantModel(req);
 
         // Get tenant-specific models
@@ -1370,41 +1370,74 @@ exports.generateOfferLetter = async (req, res) => {
                 final: finalFatherName
             });
 
-            // Get issued date - TODAY's date when Generate button is clicked
+            // Get issued date - Priority: Modal Input -> Today
             // Format: DD/MM/YYYY (e.g., "31/12/2025")
-            const issuedDate = new Date().toLocaleDateString('en-IN');
-            console.log('📅 [OFFER LETTER] Issued Date set to TODAY:', issuedDate, '- This date will appear when you add {{issued_date}} to your Word template');
+            let issuedDateStr;
+            if (issueDate) {
+                issuedDateStr = new Date(issueDate).toLocaleDateString('en-IN');
+            } else {
+                issuedDateStr = new Date().toLocaleDateString('en-IN');
+            }
+
+            // Prepare Salutation and Name
+            const finalSalutation = safeString(salutation);
+            const candidateName = safeString(applicant.name);
+            const candidateNameWithSalutation = finalSalutation ? `${finalSalutation} ${candidateName}` : candidateName;
+
+            console.log('📅 [OFFER LETTER] Issued Date:', issuedDateStr);
 
             const offerData = {
-                employee_name: safeString(applicant.name),
-                candidate_name: safeString(applicant.name), // Added for compatibility
-                // Father name - support multiple placeholder variations
+                employee_name: candidateNameWithSalutation, // UPDATED: Includes Salutation by default
+                candidate_name: candidateNameWithSalutation, // UPDATED: Includes Salutation by default
+                name: candidateNameWithSalutation, // Common alias
+                salutation: finalSalutation,
+                candidate_name_only: candidateName, // Raw name without salutation if needed
+                candidate_name_with_salutation: candidateNameWithSalutation,
+
+                // Father name
                 father_name: finalFatherName,
-                father_names: finalFatherName, // Plural alias
-                fatherName: finalFatherName, // CamelCase alias
-                fatherNames: finalFatherName, // CamelCase plural alias
-                FATHER_NAME: finalFatherName, // Uppercase alias
-                FATHER_NAMES: finalFatherName, // Uppercase plural alias
+                father_names: finalFatherName,
+                fatherName: finalFatherName,
+                fatherNames: finalFatherName,
+                FATHER_NAME: finalFatherName,
+                FATHER_NAMES: finalFatherName,
+
                 designation: safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
-                // Joining Date: HR Input (Modal) -> Applicant DB (Fallback)
+
+                // Joining Date
                 joining_date: safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
-                // Location: HR Input (Modal) -> Applicant DB (Fallback)
+
+                // Location
                 location: safeString(location || applicant.location || applicant.workLocation),
-                // Address: HR Input (Modal) -> Applicant DB (Fallback)
+
+                // Address: Priority -> Modal Input (address) -> Database (applicant.address)
                 address: safeString(address || applicant.address),
-                candidate_address: safeString(address || applicant.address), // Alias for some templates
-                // Ref No: HR Input (Modal) ONLY
+                candidate_address: safeString(address || applicant.address),
+
+                // Ref No
                 offer_ref_no: safeString(refNo),
-                // Issued Date - support multiple placeholder variations
-                issued_date: issuedDate,
-                issuedDate: issuedDate, // CamelCase alias
-                ISSUED_DATE: issuedDate, // Uppercase alias
-                // Current date (legacy support)
-                current_date: issuedDate
+
+                // Issued Date - comprehensive aliases for all possible template variations
+                issued_date: issuedDateStr,
+                issuedDate: issuedDateStr,
+                ISSUED_DATE: issuedDateStr,
+                current_date: issuedDateStr,
+                Date: issuedDateStr,
+                DATE: issuedDateStr,
+                Date_odt: issuedDateStr, // LibreOffice/ODT format
+                date_odt: issuedDateStr,
+                DATE_ODT: issuedDateStr
             };
 
             console.log('🔥 [OFFER LETTER] Word template data:', offerData);
-            console.log('📅 [OFFER LETTER] Issued Date:', issuedDate, '(Use {{issued_date}} in your Word template)');
+            console.log('📅 [OFFER LETTER] Issue Date:', issuedDateStr);
+            console.log('👤 [OFFER LETTER] Salutation:', finalSalutation);
+            console.log('👤 [OFFER LETTER] Candidate Name (with salutation):', candidateNameWithSalutation);
+            console.log('📋 [OFFER LETTER] All Date Placeholders:', {
+                issued_date: issuedDateStr,
+                Date_odt: issuedDateStr,
+                Date: issuedDateStr
+            });
 
             // Render the document
             doc.render(offerData);
@@ -1445,22 +1478,42 @@ exports.generateOfferLetter = async (req, res) => {
 
             const safeString = (val) => (val !== undefined && val !== null ? String(val) : '');
             const finalFatherName = safeString(fatherName || applicant.fatherName);
-            const issuedDate = new Date().toLocaleDateString('en-IN');
+
+            // Get issued date - Priority: Modal Input -> Today
+            let issuedDateStr;
+            if (issueDate) {
+                issuedDateStr = new Date(issueDate).toLocaleDateString('en-IN');
+            } else {
+                issuedDateStr = new Date().toLocaleDateString('en-IN');
+            }
+
+            // Prepare Salutation
+            const finalSalutation = safeString(salutation);
+
+            const candidateName = safeString(applicant.name);
+            const candidateNameWithSalutation = finalSalutation ? `${finalSalutation} ${candidateName}` : candidateName;
 
             const replacements = {
-                '{{employee_name}}': safeString(applicant.name),
-                '{{candidate_name}}': safeString(applicant.name),
+                '{{employee_name}}': candidateNameWithSalutation,
+                '{{candidate_name}}': candidateNameWithSalutation,
+                '{{name}}': candidateNameWithSalutation,
+                '{{salutation}}': finalSalutation,
                 '{{father_name}}': finalFatherName,
                 '{{father_names}}': finalFatherName,
                 '{{designation}}': safeString(applicant.requirementId?.jobTitle || applicant.currentDesignation),
                 '{{joining_date}}': safeString(joiningDate ? new Date(joiningDate).toLocaleDateString('en-IN') : (applicant.joiningDate ? new Date(applicant.joiningDate).toLocaleDateString('en-IN') : '')),
                 '{{location}}': safeString(location || applicant.location || applicant.workLocation),
-                '{{address}}': safeString(applicant.address || address),
+                '{{address}}': safeString(address || applicant.address),
                 '{{offer_ref_no}}': safeString(refNo),
-                '{{issued_date}}': issuedDate,
-                '{{issuedDate}}': issuedDate,
-                '{{ISSUED_DATE}}': issuedDate,
-                '{{current_date}}': issuedDate
+                '{{issued_date}}': issuedDateStr,
+                '{{issuedDate}}': issuedDateStr,
+                '{{ISSUED_DATE}}': issuedDateStr,
+                '{{current_date}}': issuedDateStr,
+                '{{Date}}': issuedDateStr,
+                '{{DATE}}': issuedDateStr,
+                '{{Date_odt}}': issuedDateStr,
+                '{{date_odt}}': issuedDateStr,
+                '{{DATE_ODT}}': issuedDateStr
             };
 
             let htmlContent = template.bodyContent || '';

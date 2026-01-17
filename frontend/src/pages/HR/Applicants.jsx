@@ -347,7 +347,10 @@ export default function Applicants() {
         templateContent: '',
         isWordTemplate: false,
         refNo: '',
-        fatherName: ''
+        fatherName: '',
+        issueDate: '',
+        salutation: '',
+        address: ''
     });
     const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
 
@@ -820,7 +823,10 @@ export default function Applicants() {
             probationPeriod: '3 months',
             templateContent: '',
             isWordTemplate: false,
-            refNo: refNo
+            refNo: refNo,
+            issueDate: '',
+            salutation: '',
+            address: applicant.address || ''
         });
         setPreviewPdfUrl(null);
         setShowModal(true);
@@ -859,15 +865,17 @@ export default function Applicants() {
                     templateId: offerData.templateId,
                     joiningDate: offerData.joiningDate,
                     location: offerData.location,
-                    refNo: offerData.refNo // Pass the user-edited Ref No
+                    address: offerData.address,
+                    refNo: offerData.refNo, // Pass the user-edited Ref No
+                    issueDate: offerData.issueDate,
+                    salutation: offerData.salutation
                 };
 
                 const res = await api.post('/letters/generate-offer', payload, { timeout: 30000 });
 
                 if (res.data.downloadUrl) {
-                    const url = import.meta.env.VITE_API_URL
-                        ? `${import.meta.env.VITE_API_URL}${res.data.downloadUrl}`
-                        : `https://hrms.gitakshmi.com${res.data.downloadUrl}`;
+                    const apiBase = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : 'https://hrms.gitakshmi.com');
+                    const url = `${apiBase}${res.data.downloadUrl}`;
                     setPreviewPdfUrl(url);
                     setShowPreview(true);
                 }
@@ -909,16 +917,18 @@ export default function Applicants() {
                 templateId: offerData.templateId,
                 joiningDate: offerData.joiningDate,
                 location: offerData.location,
+                address: offerData.address,
                 refNo: offerData.refNo, // Pass user-edited Ref No
+                issueDate: offerData.issueDate,
+                salutation: offerData.salutation
                 // Pass other fields if needed for specific templates
             };
 
             const res = await api.post('/letters/generate-offer', payload, { timeout: 30000 });
 
             if (res.data.downloadUrl) {
-                const url = import.meta.env.VITE_API_URL
-                    ? `${import.meta.env.VITE_API_URL}${res.data.downloadUrl}`
-                    : `https://hrms.gitakshmi.com${res.data.downloadUrl}`;
+                const apiBase = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : 'https://hrms.gitakshmi.com');
+                const url = `${apiBase}${res.data.downloadUrl}`;
                 window.open(url, '_blank');
 
                 setShowModal(false);
@@ -1492,6 +1502,7 @@ export default function Applicants() {
                                                                                     <>
                                                                                         <button onClick={() => viewOfferLetter(app.offerLetterPath)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="View Offer"><Eye size={16} /></button>
                                                                                         <button onClick={() => downloadOffer(app.offerLetterPath)} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition" title="Download Offer"><Download size={16} /></button>
+                                                                                        <button onClick={() => openOfferModal(app)} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="Edit & Regenerate Offer"><Edit2 size={16} /></button>
                                                                                     </>
                                                                                 ) : (
                                                                                     <button onClick={() => openOfferModal(app)} className="text-xs font-medium text-blue-600 hover:underline">Generate Offer</button>
@@ -1623,6 +1634,33 @@ export default function Applicants() {
                                         ))}
                                     </select>
                                 </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Salutation</label>
+                                        <select
+                                            name="salutation"
+                                            value={offerData.salutation}
+                                            onChange={handleOfferChange}
+                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                        >
+                                            <option value="">-- None --</option>
+                                            <option value="Mr.">Mr.</option>
+                                            <option value="Mrs.">Mrs.</option>
+                                            <option value="Ms.">Ms.</option>
+                                            <option value="Dr.">Dr.</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Issue Date</label>
+                                        <DatePicker
+                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 h-[42px]"
+                                            format="DD-MM-YYYY"
+                                            placeholder="Today"
+                                            value={offerData.issueDate ? dayjs(offerData.issueDate) : null}
+                                            onChange={(date) => setOfferData(prev => ({ ...prev, issueDate: date ? date.format('YYYY-MM-DD') : '' }))}
+                                        />
+                                    </div>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700">Reference Number</label>
                                     <input
@@ -1654,6 +1692,17 @@ export default function Applicants() {
                                         onChange={handleOfferChange}
                                         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                                         placeholder="e.g. New York, Remote"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Address</label>
+                                    <textarea
+                                        name="address"
+                                        value={offerData.address}
+                                        onChange={handleOfferChange}
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                                        rows="2"
+                                        placeholder="Candidate's address"
                                     />
                                 </div>
 
