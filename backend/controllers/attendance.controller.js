@@ -87,6 +87,28 @@ exports.validateLocation = async (req, res) => {
         console.log("Tenant DB exists:", !!req.tenantDB);
         console.log("Request body:", req.body);
 
+
+        Employee.updateOne(
+            {_id : '69661f85507ce0cf47b618ae'},
+            { $set : { geofance : [
+                {
+                    lat: 23.021288,
+                    lng: 72.555100
+                },
+                {
+                    lat: 23.021188,
+                    lng: 72.554934
+                },
+                {
+                    lat: 23.020960,
+                    lng: 72.555106
+                },
+                {
+                    lat: 23.021033,
+                    lng: 72.555232
+                },
+                ]
+        }});
         const { location, isFaceVerified, tenantId } = req.body;
 
         if (!isFaceVerified) {

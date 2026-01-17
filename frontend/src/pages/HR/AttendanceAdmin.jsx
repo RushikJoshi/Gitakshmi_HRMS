@@ -41,6 +41,8 @@ export default function AttendanceAdmin() {
     });
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadedData, setUploadedData] = useState(null);
+    const [showUploadPreview, setShowUploadPreview] = useState(false);
     const fileInputRef = React.useRef(null);
 
     useEffect(() => {
@@ -141,26 +143,36 @@ export default function AttendanceAdmin() {
         const file = e.target.files[0];
         if (!file) return;
 
-        try{
         const reader = new FileReader();
 
         reader.onload = (event) => {
-            const data = new Uint8Array(event.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
+            try {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
 
-            const sheetName = workbook.SheetNames[0]; // first sheet
-            const worksheet = workbook.Sheets[sheetName];
+                const sheetName = workbook.SheetNames[0]; // first sheet
+                const worksheet = workbook.Sheets[sheetName];
 
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-            console.log(jsonData);
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                console.log(jsonData);
+                setUploadedData({
+                    fileName: file.name,
+                    rowCount: jsonData.length,
+                    data: jsonData.slice(0, 10) // Show first 10 rows in preview
+                });
+                setShowUploadPreview(true);
+            } catch (error) {
+                console.error('Error reading file:', error);
+                alert('Failed to read Excel file. Please check the file format.');
+            }
+        };
+
+        reader.onerror = () => {
+            alert('Failed to read the file');
         };
 
         reader.readAsArrayBuffer(file);
-
-    }
-    catch(error){
-        console.log("Error Occured at the time Fatching the data")
-    }
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     return (
@@ -472,6 +484,110 @@ export default function AttendanceAdmin() {
                                     </>
                                 ) : (
                                     'Save Changes'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Upload Preview Modal */}
+            {showUploadPreview && uploadedData && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowUploadPreview(false)}></div>
+                    <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-8 animate-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">
+                                    Upload Preview
+                                </h3>
+                                <p className="text-xs font-bold text-slate-400 mt-1">
+                                    File: {uploadedData.fileName} • Total Records: {uploadedData.rowCount}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowUploadPreview(false)}
+                                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-rose-500 transition"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {uploadedData.data.length > 0 ? (
+                            <div className="overflow-x-auto mb-6">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
+                                        <tr>
+                                            {Object.keys(uploadedData.data[0]).map((header, idx) => (
+                                                <th key={idx} className="px-4 py-3 text-left text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-widest">
+                                                    {header}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {uploadedData.data.map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                {Object.values(row).map((value, colIdx) => (
+                                                    <td key={colIdx} className="px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                        {String(value)}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="text-center py-8">
+                                <p className="text-slate-500 dark:text-slate-400 font-bold">No data to display</p>
+                            </div>
+                        )}
+
+                        {uploadedData.rowCount > 10 && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 mb-6">
+                                <p className="text-xs font-bold text-blue-700 dark:text-blue-400">
+                                    Showing first 10 of {uploadedData.rowCount} records
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowUploadPreview(false)}
+                                className="flex-1 px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        setUploading(true);
+                                        const formData = new FormData();
+                                        formData.append('file', fileInputRef.current?.files?.[0] || new File([], ''));
+                                        const res = await api.post('/attendance/upload-excel', formData, {
+                                            headers: { 'Content-Type': 'multipart/form-data' }
+                                        });
+                                        alert(res.data.message);
+                                        setShowUploadPreview(false);
+                                        fetchStats();
+                                    } catch (err) {
+                                        console.error('Upload failed:', err);
+                                        alert(err.response?.data?.error || 'Failed to upload attendance');
+                                    } finally {
+                                        setUploading(false);
+                                    }
+                                }}
+                                disabled={uploading}
+                                className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-xl text-sm font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {uploading ? (
+                                    <>
+                                        <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                        Uploading...
+                                    </>
+                                ) : (
+                                    'Confirm Upload'
                                 )}
                             </button>
                         </div>

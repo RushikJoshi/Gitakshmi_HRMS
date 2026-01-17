@@ -104,6 +104,10 @@ const EmployeeSchema = new mongoose.Schema({
   salarySnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'EmployeeSalarySnapshot', default: null },
 
   meta: { type: Object, default: {} },
+  location: [{
+    lat: Number,
+    lng: Number
+  }],
   geofance: [
     {
       lat: Number,

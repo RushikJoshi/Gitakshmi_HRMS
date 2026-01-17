@@ -12,6 +12,20 @@ const TenantSchema = new mongoose.Schema({
   // Verification fields
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, default: null },
+  geofance: [
+    {
+      lat: Number,
+      lng: Number
+    }
+  ],
+  allowedAccuracy: {
+    type: Number,
+    default: 30
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Tenant', TenantSchema);

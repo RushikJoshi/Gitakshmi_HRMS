@@ -24,14 +24,12 @@ export default function MyAttendanceView() {
             setLoading(true);
             const t = new Date().getTime();
             // Fetch Attendance, Leaves, Holidays, and Settings in parallel
-            const [employeeId, employeeFullName, leaveRes, holidayRes, settingsRes] = await Promise.all([
-                api.get(`/attendance/my`),
-                api.get(`/attendance/my`),
+            const [attRes, leaveRes, holidayRes, settingsRes] = await Promise.all([
                 api.get(`/attendance/my?month=${currentMonth + 1}&year=${currentYear}&t=${t}`),
                 api.get(`/employee/leaves/history?t=${t}`),
                 api.get(`/holidays?t=${t}`),
                 api.get(`/attendance/settings?t=${t}`)
-            ]);
+            ]); 
 
             const rawAttendance = attRes.data || [];
             const leaves = leaveRes.data || [];

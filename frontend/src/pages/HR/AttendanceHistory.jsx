@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { 
-  Calendar, Clock, TrendingUp, Users, Download, Filter, Search, 
-  ChevronLeft, ChevronRight, UserCheck, AlertCircle, MapPin, 
+import React, { useState, useEffect } from 'react';
+import {
+  Calendar, Clock, TrendingUp, Users, Download, Filter, Search,
+  ChevronLeft, ChevronRight, UserCheck, AlertCircle, MapPin,
   MoreVertical, Eye, Edit2, FileText, BarChart3, PieChart
 } from 'lucide-react';
+import api from '../../utils/api';
 
 export default function AttendanceHistory() {
   const [selectedMonth, setSelectedMonth] = useState('January 2026');
@@ -13,190 +14,201 @@ export default function AttendanceHistory() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-//   const employeeAttendance = [
-//     { 
-//       id: 'EMP001', 
-//       name: 'Sarah Johnson', 
-//       department: 'Engineering', 
-//       position: 'Senior Developer',
-//       avatar: 'SJ',
-//       totalDays: 22,
-//       present: 20,
-//       absent: 1,
-//       leaves: 1,
-//       halfDays: 0,
-//       lateArrivals: 3,
-//       avgCheckIn: '09:05 AM',
-//       avgCheckOut: '06:12 PM',
-//       totalHours: 182.5,
-//       attendanceRate: 91,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP002', 
-//       name: 'Michael Chen', 
-//       department: 'Marketing', 
-//       position: 'Marketing Manager',
-//       avatar: 'MC',
-//       totalDays: 22,
-//       present: 22,
-//       absent: 0,
-//       leaves: 0,
-//       halfDays: 0,
-//       lateArrivals: 1,
-//       avgCheckIn: '08:58 AM',
-//       avgCheckOut: '06:05 PM',
-//       totalHours: 198.5,
-//       attendanceRate: 100,
-//       workLocation: 'Remote'
-//     },
-//     { 
-//       id: 'EMP003', 
-//       name: 'Emily Rodriguez', 
-//       department: 'Engineering', 
-//       position: 'Lead Engineer',
-//       avatar: 'ER',
-//       totalDays: 22,
-//       present: 19,
-//       absent: 2,
-//       leaves: 1,
-//       halfDays: 0,
-//       lateArrivals: 5,
-//       avgCheckIn: '09:18 AM',
-//       avgCheckOut: '06:25 PM',
-//       totalHours: 175.0,
-//       attendanceRate: 86,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP004', 
-//       name: 'James Williams', 
-//       department: 'Sales', 
-//       position: 'Sales Executive',
-//       avatar: 'JW',
-//       totalDays: 22,
-//       present: 18,
-//       absent: 3,
-//       leaves: 1,
-//       halfDays: 0,
-//       lateArrivals: 2,
-//       avgCheckIn: '09:10 AM',
-//       avgCheckOut: '06:00 PM',
-//       totalHours: 162.0,
-//       attendanceRate: 82,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP005', 
-//       name: 'Aisha Patel', 
-//       department: 'HR', 
-//       position: 'HR Specialist',
-//       avatar: 'AP',
-//       totalDays: 22,
-//       present: 21,
-//       absent: 1,
-//       leaves: 0,
-//       halfDays: 0,
-//       lateArrivals: 0,
-//       avgCheckIn: '09:00 AM',
-//       avgCheckOut: '06:15 PM',
-//       totalHours: 192.5,
-//       attendanceRate: 95,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP006', 
-//       name: 'David Thompson', 
-//       department: 'Engineering', 
-//       position: 'Frontend Developer',
-//       avatar: 'DT',
-//       totalDays: 22,
-//       present: 20,
-//       absent: 0,
-//       leaves: 0,
-//       halfDays: 2,
-//       lateArrivals: 4,
-//       avgCheckIn: '09:12 AM',
-//       avgCheckOut: '06:10 PM',
-//       totalHours: 180.0,
-//       attendanceRate: 91,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP007', 
-//       name: 'Lisa Martinez', 
-//       department: 'Finance', 
-//       position: 'Financial Analyst',
-//       avatar: 'LM',
-//       totalDays: 22,
-//       present: 22,
-//       absent: 0,
-//       leaves: 0,
-//       halfDays: 0,
-//       lateArrivals: 0,
-//       avgCheckIn: '08:55 AM',
-//       avgCheckOut: '06:10 PM',
-//       totalHours: 198.5,
-//       attendanceRate: 100,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP008', 
-//       name: 'Robert Brown', 
-//       department: 'Marketing', 
-//       position: 'Content Strategist',
-//       avatar: 'RB',
-//       totalDays: 22,
-//       present: 20,
-//       absent: 1,
-//       leaves: 1,
-//       halfDays: 0,
-//       lateArrivals: 2,
-//       avgCheckIn: '09:05 AM',
-//       avgCheckOut: '05:45 PM',
-//       totalHours: 176.0,
-//       attendanceRate: 91,
-//       workLocation: 'Remote'
-//     },
-//     { 
-//       id: 'EMP009', 
-//       name: 'Sophia Lee', 
-//       department: 'Design', 
-//       position: 'UI/UX Designer',
-//       avatar: 'SL',
-//       totalDays: 22,
-//       present: 17,
-//       absent: 2,
-//       leaves: 3,
-//       halfDays: 0,
-//       lateArrivals: 1,
-//       avgCheckIn: '09:08 AM',
-//       avgCheckOut: '06:00 PM',
-//       totalHours: 153.0,
-//       attendanceRate: 77,
-//       workLocation: 'Office'
-//     },
-//     { 
-//       id: 'EMP010', 
-//       name: 'Daniel Kim', 
-//       department: 'Sales', 
-//       position: 'Business Development',
-//       avatar: 'DK',
-//       totalDays: 22,
-//       present: 21,
-//       absent: 1,
-//       leaves: 0,
-//       halfDays: 0,
-//       lateArrivals: 0,
-//       avgCheckIn: '08:50 AM',
-//       avgCheckOut: '06:05 PM',
-//       totalHours: 195.5,
-//       attendanceRate: 95,
-//       workLocation: 'Office'
-//     },
-//   ];
+  //   const employeeAttendance = [
+  //     { 
+  //       id: 'EMP001', 
+  //       name: 'Sarah Johnson', 
+  //       department: 'Engineering', 
+  //       position: 'Senior Developer',
+  //       avatar: 'SJ',
+  //       totalDays: 22,
+  //       present: 20,
+  //       absent: 1,
+  //       leaves: 1,
+  //       halfDays: 0,
+  //       lateArrivals: 3,
+  //       avgCheckIn: '09:05 AM',
+  //       avgCheckOut: '06:12 PM',
+  //       totalHours: 182.5,
+  //       attendanceRate: 91,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP002', 
+  //       name: 'Michael Chen', 
+  //       department: 'Marketing', 
+  //       position: 'Marketing Manager',
+  //       avatar: 'MC',
+  //       totalDays: 22,
+  //       present: 22,
+  //       absent: 0,
+  //       leaves: 0,
+  //       halfDays: 0,
+  //       lateArrivals: 1,
+  //       avgCheckIn: '08:58 AM',
+  //       avgCheckOut: '06:05 PM',
+  //       totalHours: 198.5,
+  //       attendanceRate: 100,
+  //       workLocation: 'Remote'
+  //     },
+  //     { 
+  //       id: 'EMP003', 
+  //       name: 'Emily Rodriguez', 
+  //       department: 'Engineering', 
+  //       position: 'Lead Engineer',
+  //       avatar: 'ER',
+  //       totalDays: 22,
+  //       present: 19,
+  //       absent: 2,
+  //       leaves: 1,
+  //       halfDays: 0,
+  //       lateArrivals: 5,
+  //       avgCheckIn: '09:18 AM',
+  //       avgCheckOut: '06:25 PM',
+  //       totalHours: 175.0,
+  //       attendanceRate: 86,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP004', 
+  //       name: 'James Williams', 
+  //       department: 'Sales', 
+  //       position: 'Sales Executive',
+  //       avatar: 'JW',
+  //       totalDays: 22,
+  //       present: 18,
+  //       absent: 3,
+  //       leaves: 1,
+  //       halfDays: 0,
+  //       lateArrivals: 2,
+  //       avgCheckIn: '09:10 AM',
+  //       avgCheckOut: '06:00 PM',
+  //       totalHours: 162.0,
+  //       attendanceRate: 82,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP005', 
+  //       name: 'Aisha Patel', 
+  //       department: 'HR', 
+  //       position: 'HR Specialist',
+  //       avatar: 'AP',
+  //       totalDays: 22,
+  //       present: 21,
+  //       absent: 1,
+  //       leaves: 0,
+  //       halfDays: 0,
+  //       lateArrivals: 0,
+  //       avgCheckIn: '09:00 AM',
+  //       avgCheckOut: '06:15 PM',
+  //       totalHours: 192.5,
+  //       attendanceRate: 95,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP006', 
+  //       name: 'David Thompson', 
+  //       department: 'Engineering', 
+  //       position: 'Frontend Developer',
+  //       avatar: 'DT',
+  //       totalDays: 22,
+  //       present: 20,
+  //       absent: 0,
+  //       leaves: 0,
+  //       halfDays: 2,
+  //       lateArrivals: 4,
+  //       avgCheckIn: '09:12 AM',
+  //       avgCheckOut: '06:10 PM',
+  //       totalHours: 180.0,
+  //       attendanceRate: 91,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP007', 
+  //       name: 'Lisa Martinez', 
+  //       department: 'Finance', 
+  //       position: 'Financial Analyst',
+  //       avatar: 'LM',
+  //       totalDays: 22,
+  //       present: 22,
+  //       absent: 0,
+  //       leaves: 0,
+  //       halfDays: 0,
+  //       lateArrivals: 0,
+  //       avgCheckIn: '08:55 AM',
+  //       avgCheckOut: '06:10 PM',
+  //       totalHours: 198.5,
+  //       attendanceRate: 100,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP008', 
+  //       name: 'Robert Brown', 
+  //       department: 'Marketing', 
+  //       position: 'Content Strategist',
+  //       avatar: 'RB',
+  //       totalDays: 22,
+  //       present: 20,
+  //       absent: 1,
+  //       leaves: 1,
+  //       halfDays: 0,
+  //       lateArrivals: 2,
+  //       avgCheckIn: '09:05 AM',
+  //       avgCheckOut: '05:45 PM',
+  //       totalHours: 176.0,
+  //       attendanceRate: 91,
+  //       workLocation: 'Remote'
+  //     },
+  //     { 
+  //       id: 'EMP009', 
+  //       name: 'Sophia Lee', 
+  //       department: 'Design', 
+  //       position: 'UI/UX Designer',
+  //       avatar: 'SL',
+  //       totalDays: 22,
+  //       present: 17,
+  //       absent: 2,
+  //       leaves: 3,
+  //       halfDays: 0,
+  //       lateArrivals: 1,
+  //       avgCheckIn: '09:08 AM',
+  //       avgCheckOut: '06:00 PM',
+  //       totalHours: 153.0,
+  //       attendanceRate: 77,
+  //       workLocation: 'Office'
+  //     },
+  //     { 
+  //       id: 'EMP010', 
+  //       name: 'Daniel Kim', 
+  //       department: 'Sales', 
+  //       position: 'Business Development',
+  //       avatar: 'DK',
+  //       totalDays: 22,
+  //       present: 21,
+  //       absent: 1,
+  //       leaves: 0,
+  //       halfDays: 0,
+  //       lateArrivals: 0,
+  //       avgCheckIn: '08:50 AM',
+  //       avgCheckOut: '06:05 PM',
+  //       totalHours: 195.5,
+  //       attendanceRate: 95,
+  //       workLocation: 'Office'
+  //     },
+  //   ];
 
-    const employeeAttendance = [];
+  // const employeeAttendance = async() => {
+  //   try{
+  //     const response = await api.get('/attendance/all');
+  //     return response.data;
+
+  //   }
+  //   catch(error){
+  //     console.log("Error in the fetching the Attendance data");
+  //   }
+  // }
+  // console.log(employeeAttendance());
+
   const stats = [
     { label: 'Total Employees', value: '156', icon: Users, color: 'blue', bgColor: 'bg-blue-500' },
     { label: 'Avg Attendance', value: '91%', icon: TrendingUp, color: 'green', bgColor: 'bg-green-500' },
@@ -220,17 +232,58 @@ export default function AttendanceHistory() {
   };
 
   const getWorkLocationColor = (location) => {
-    return location === 'Office' 
-      ? 'bg-blue-50 text-blue-700 border-blue-200' 
+    return location === 'Office'
+      ? 'bg-blue-50 text-blue-700 border-blue-200'
       : 'bg-purple-50 text-purple-700 border-purple-200';
   };
 
-  const totalPages = Math.ceil(employeeAttendance.length / pageSize);
-  const paginatedData = employeeAttendance.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  // const totalPages = Math.ceil(employeeAttendance.length / pageSize);
+  // const paginatedData = employeeAttendance.slice(
+  //   (currentPage - 1) * pageSize,
+  //   currentPage * pageSize
+  // );
+  // console.log("Pagenated Data ",paginatedData);
 
+  // useEffect(() => {
+  //   const fetchAttendance = async () => {
+  //     try {
+  //       const res = await api.get('/attendance/all');
+  //       console.log(res);
+  //       return res.data
+  //     }
+  //     catch(error){
+  //       console.log("Error at the time fatching the data ",error);
+  //       throw error   
+  //     }
+  //   }
+
+  //   const employeeAttendance = fetchAttendance();
+  //   console.log(employeeAttendance);
+  // }, []);
+
+  const getEmployeeAttendance = async () => {
+    try {
+      const res = await api.get('/attendance/all');
+      console.log(res);
+      console.log(res.data);
+      return res.data;
+    }
+    catch (error) {
+      console.log("Error occured at the time fatching the attendance data : ", error);
+      throw error;
+    }
+  };
+
+  const [attendance, setAttendance] = useState([]);
+
+  useEffect(() => {
+    const fetchAttendance = async () => {
+      const data = await getEmployeeAttendance();
+      setAttendance(data);
+    };
+
+    fetchAttendance();
+  }, []);
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
@@ -274,8 +327,8 @@ export default function AttendanceHistory() {
                 <span className="text-sm font-bold text-slate-400">/ {dept.total}</span>
               </div>
               <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-3">
-                <div 
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all" 
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all"
                   style={{ width: dept.rate }}
                 ></div>
               </div>
@@ -302,7 +355,7 @@ export default function AttendanceHistory() {
                 className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 transition"
               />
             </div>
-            <select 
+            <select
               value={selectedDepartment}
               onChange={(e) => setSelectedDepartment(e.target.value)}
               className="w-full sm:w-48 px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 transition"
@@ -315,7 +368,7 @@ export default function AttendanceHistory() {
               <option>HR</option>
               <option>Design</option>
             </select>
-            <select 
+            <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="w-full sm:w-40 px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 transition"
@@ -355,7 +408,7 @@ export default function AttendanceHistory() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, employeeAttendance.length)} of {employeeAttendance.length}
+                Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, attendance.length)} of {attendance.length}
               </span>
             </div>
           </div>
@@ -376,7 +429,7 @@ export default function AttendanceHistory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-              {paginatedData.map((employee, index) => (
+              {attendance.map((employee, index) => (
                 <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -384,14 +437,14 @@ export default function AttendanceHistory() {
                         {employee.avatar}
                       </div>
                       <div>
-                        <p className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tighter">{employee.name}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{employee.id} • {employee.position}</p>
+                        <p className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tighter">{employee.employee.firstName + " " + employee.employee.lastName}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{employee.employee.employeeId} • {employee.position}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <span className="text-2xl font-black text-green-600 dark:text-green-400 tracking-tighter">{employee.present}</span>
+                      <span className="text-2xl font-black text-green-600 dark:text-green-400 tracking-tighter">{employee.length}</span>
                       <span className="text-xs font-bold text-slate-400">/ {employee.totalDays}</span>
                     </div>
                   </td>
@@ -408,17 +461,17 @@ export default function AttendanceHistory() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1.5">
                         <Clock size={12} className="text-green-500" />
-                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{employee.avgCheckIn}</span>
+                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{employee.checkOut}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Clock size={12} className="text-red-500" />
-                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{employee.avgCheckOut}</span>
+                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{employee.checkIn}</span>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <span className="text-lg font-black text-slate-800 dark:text-white tracking-tighter">
-                      {employee.totalHours}
+                      {employee.workingHours}
                       <span className="text-[10px] text-slate-400 ml-1">hrs</span>
                     </span>
                   </td>
@@ -430,19 +483,19 @@ export default function AttendanceHistory() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <button 
+                      <button
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-600 rounded-xl transition"
                         title="View Details"
                       >
                         <Eye size={16} />
                       </button>
-                      <button 
+                      <button
                         className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 group-hover:text-blue-600 transition"
                         title="View Report"
                       >
                         <FileText size={16} />
                       </button>
-                      <button 
+                      <button
                         className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 group-hover:text-slate-600 transition"
                         title="More Options"
                       >
@@ -455,39 +508,38 @@ export default function AttendanceHistory() {
             </tbody>
           </table>
         </div>
-        
+
         {/* Pagination */}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex items-center justify-between">
           <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest">
-            Page {currentPage} of {totalPages}
+            {/* Page {currentPage} of {totalPages} */}
           </p>
           <div className="flex gap-2">
-            <button 
+            <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
               className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
             >
               Previous
             </button>
-            {[...Array(Math.min(5, totalPages))].map((_, i) => {
+            {/* {[...Array(Math.min(5, totalPages))].map((_, i) => {
               const pageNum = i + 1;
               return (
-                <button 
+                <button
                   key={pageNum}
                   onClick={() => setCurrentPage(pageNum)}
-                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition ${
-                    currentPage === pageNum
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition ${currentPage === pageNum
                       ? 'bg-blue-600 text-white shadow-lg'
                       : 'border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
-                  }`}
+                    }`}
                 >
                   {pageNum}
                 </button>
               );
-            })}
-            <button 
+            })} */}
+            <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
+              // disabled={currentPage === totalPages}
               className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest"
             >
               Next
