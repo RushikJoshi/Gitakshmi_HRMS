@@ -132,10 +132,10 @@ export default function MyAttendanceView() {
         // const attandanceData = await attendance.find({}).lean();
         // console.log(attandanceData);
         // const employee = employee.find({tenant: tenant });
-
+        // console.log(attendance);
 
         const rows = attendance.map(item => [
-            item.employee._id,
+            item.employee.employeeId,
             (item.employee.firstName + " " +item.employee.lastName),
             formatDateDDMMYYYY(item.date),
             (item.leaveType ? `${item.status} (${item.leaveType})` : item.status).toUpperCase(),

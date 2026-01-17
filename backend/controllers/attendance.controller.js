@@ -624,7 +624,7 @@ exports.getMyAttendance = async (req, res) => {
         }
 
         const data = await Attendance.find(filter).sort({ date: 1 })
-        .populate('employee','firstName lastName'); // Sorted by date ASC for calendar flow
+        .populate('employee','firstName lastName employeeId'); // Sorted by date ASC for calendar flow
         res.json(data);
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -14,7 +14,6 @@ export default function AttendanceHistory() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-  //   const employeeAttendance = [
   //     { 
   //       id: 'EMP001', 
   //       name: 'Sarah Johnson', 
@@ -237,29 +236,6 @@ export default function AttendanceHistory() {
       : 'bg-purple-50 text-purple-700 border-purple-200';
   };
 
-  // const totalPages = Math.ceil(employeeAttendance.length / pageSize);
-  // const paginatedData = employeeAttendance.slice(
-  //   (currentPage - 1) * pageSize,
-  //   currentPage * pageSize
-  // );
-  // console.log("Pagenated Data ",paginatedData);
-
-  // useEffect(() => {
-  //   const fetchAttendance = async () => {
-  //     try {
-  //       const res = await api.get('/attendance/all');
-  //       console.log(res);
-  //       return res.data
-  //     }
-  //     catch(error){
-  //       console.log("Error at the time fatching the data ",error);
-  //       throw error   
-  //     }
-  //   }
-
-  //   const employeeAttendance = fetchAttendance();
-  //   console.log(employeeAttendance);
-  // }, []);
 
   const getEmployeeAttendance = async () => {
     try {
@@ -284,6 +260,13 @@ export default function AttendanceHistory() {
 
     fetchAttendance();
   }, []);
+
+  // const totalDays = attendance.reduce((acc,cur) => {
+  //   return acc.workingHours+ cur.workingHours;
+  // })
+
+  // console.log(totalDays);
+
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
